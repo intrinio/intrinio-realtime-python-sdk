@@ -118,6 +118,10 @@ client = IntrinioRealtimeClient(options)
 
 ---------
 
+`client.keep_alive()` - Runs an infinite loop to keep the thread alive, so that the client continues to receive prices. You may call this function after `connect()` or use your own timing logic (for example: connect, listen for quotes for x minutes, disconnect).
+
+---------
+
 `client.disconnect()` - Closes the WebSocket, stops the self-healing and heartbeat intervals. You _must_ call this to dispose of the client.
 
 ---------
