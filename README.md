@@ -4,7 +4,7 @@
 
 ## Requirements
 
-- Python 2 or 3
+- Python 3
 
 ## Features
 
