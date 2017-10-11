@@ -9,7 +9,7 @@ setup(
     packages = ['intriniorealtime'],
     version = '1.0.1',
     author = 'Intrinio Python SDK for Real-Time Stock Prices',
-    author_email = 'success@intrinio.co',
+    author_email = 'success@intrinio.com',
     url = 'https://intrinio.com',
     description = 'Intrinio Python SDK for Real-Time Stock Prices',
     long_description = readme(),
