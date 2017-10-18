@@ -85,7 +85,7 @@ class IntrinioRealtimeClient:
         if self.provider == IEX:
             return "wss://realtime.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         elif self.provider == QUODD:
-            return "ws://www6.quodd.com/WebStreamer/webStreamer/intrinio/" + self.token
+            return "wss://www5.quodd.com/websocket/webStreamer/intrinio/" + self.token
         
     def connect(self):
         self.logger.info("Connecting...")
