@@ -8,11 +8,10 @@ import logging
 import queue
 
 SELF_HEAL_TIME = 1
-HEARTBEAT_TIME = 20
-IEX_HEARTBEAT_MSG = {'topic': 'phoenix', 'event': 'heartbeat', 'payload': {}, 'ref': None}
-SELF_HEAL_BACKOFFS = [0,100,500,1000,2000,5000]
+HEARTBEAT_TIME = 3
 IEX = "iex"
-PROVIDERS = [IEX]
+QUODD = "quodd"
+PROVIDERS = [IEX, QUODD]
 MAX_QUEUE_SIZE = 10000
 
 class IntrinioRealtimeClient:
@@ -77,13 +76,17 @@ class IntrinioRealtimeClient:
         Heartbeat(self).start()
 
     def auth_url(self):
-        if self.provider == "iex":
+        if self.provider == IEX:
             return "https://realtime.intrinio.com/auth"
+        elif self.provider == QUODD:
+            return "https://api.intrinio.com/token?type=QUODD"
         
     def websocket_url(self):
-        if self.provider == "iex":
+        if self.provider == IEX:
             return "wss://realtime.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
-
+        elif self.provider == QUODD:
+            return "wss://www5.quodd.com/websocket/webStreamer/intrinio/" + self.token
+        
     def connect(self):
         self.logger.info("Connecting...")
         
@@ -181,21 +184,37 @@ class IntrinioRealtimeClient:
         self.logger.debug(f"Current channels: {self.joined_channels}")
         
     def join_message(self, channel):
-        if self.provider == "iex":
+        if self.provider == IEX:
             return {
                 'topic': self.parse_iex_topic(channel),
                 'event': 'phx_join',
                 'payload': {},
                 'ref': None
             }
+        elif self.provider == QUODD:
+            return {
+                'event': 'subscribe',
+                'data': {
+                    'ticker': channel,
+                    'action': 'subscribe'
+                }
+            }
             
     def leave_message(self, channel):
-        if self.provider == "iex":
+        if self.provider == IEX:
             return {
                 'topic': self.parse_iex_topic(channel),
                 'event': 'phx_leave',
                 'payload': {},
                 'ref': None
+            }
+        elif self.provider == QUODD:
+            return {
+                'event': 'unsubscribe',
+                'data': {
+                    'ticker': channel,
+                    'action': 'unsubscribe'
+                }
             }
             
     def parse_iex_topic(self, channel):
@@ -228,7 +247,8 @@ class QuoteReceiver(threading.Thread):
         
     def on_open(self, ws):
         self.client.logger.info("Websocket opened!")
-        self.client.on_connect()
+        if self.client.provider == IEX:
+            self.client.on_connect()
 
     def on_close(self, ws):
         self.client.logger.info("Websocket closed!")
@@ -240,14 +260,22 @@ class QuoteReceiver(threading.Thread):
     def on_message(self, ws, message):
         message = json.loads(message)
         self.client.logger.debug(f"Received message: {message}")
+        quote = None
         
-        if self.client.provider == "iex":
+        if self.client.provider == IEX:
             if message['event'] == "quote":
                 quote = message['payload']
-                try:
-                    self.client.quotes.put_nowait(quote)
-                except queue.Full:
-                    self.client.on_queue_full()
+        elif self.client.provider == QUODD:
+            if message['event'] == 'info' and message['data']['message'] == 'Connected':
+                self.client.on_connect()
+            if message['event'] == 'quote' or message['event'] == 'trade':
+                quote = message['data']
+        
+        if quote:
+            try:
+                self.client.quotes.put_nowait(quote)
+            except queue.Full:
+                self.client.on_queue_full()
 
 class QuoteHandler(threading.Thread):
     def __init__(self, client):
@@ -277,6 +305,14 @@ class Heartbeat(threading.Thread):
         while True:
             time.sleep(HEARTBEAT_TIME)
             if self.client.ready and self.client.ws:
-                if self.client.provider == "iex":
-                    self.client.ws.send(json.dumps(IEX_HEARTBEAT_MSG))
+                msg = None
+                
+                if self.client.provider == IEX:
+                    msg = {'topic': 'phoenix', 'event': 'heartbeat', 'payload': {}, 'ref': None}
+                elif self.client.provider == QUODD:
+                    msg = {'event': 'heartbeat', 'data': {'action': 'heartbeat', 'ticker': int(time.time()*1000)}}
+                    
+                if msg:
+                    self.client.logger.debug(msg)
+                    self.client.ws.send(json.dumps(msg))
                     self.client.logger.debug("Heartbeat!")
