@@ -199,7 +199,7 @@ You will receive your Intrinio API Username and Password after [creating an acco
 `client = IntrinioRealtimeClient(options)` - Creates an Intrinio Realtime client
 * **Parameter** `options.username`: Your Intrinio API Username
 * **Parameter** `options.password`: Your Intrinio API Password
-* **Parameter** `options.provider`: The real-time data provider to use (for now "iex" only)
+* **Parameter** `options.provider`: The real-time data provider to use ("iex", "quodd")
 * **Parameter** `options.on_quote(quote, backlog)`: (optional) A function that handles received quotes. `backlog` is an integer representing the approximate size of the queue of unhandled quotes
 * **Parameter** `options.channels`: (optional) An array of channels to join after connecting
 * **Parameter** `options.logger`: (optional) A Python Logger instance to use for logging
