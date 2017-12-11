@@ -14,6 +14,7 @@ setup(
     description = 'Intrinio Python SDK for Real-Time Stock Prices',
     long_description = readme(),
     install_requires = ['requests','websocket-client'],
+    python_requires = '~=3.6',
     download_url = 'https://github.com/intrinio/intrinio-realtime-python-sdk/archive/v2.0.0.tar.gz',
     keywords = ['realtime','stock prices','intrinio','stock market','stock data','financial'],
     classifiers = [
