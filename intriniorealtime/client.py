@@ -273,7 +273,10 @@ class QuoteReceiver(threading.Thread):
         
         if quote:
             try:
-                self.client.quotes.put_nowait(quote)
+                #changed to Atul Sharma 
+                # make it blocking to avoid queue.Full exception 
+                #self.client.quotes.put_nowait(quote)
+                self.client.quotes.put(quote)
             except queue.Full:
                 self.client.on_queue_full()
 
