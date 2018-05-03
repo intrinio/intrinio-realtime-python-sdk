@@ -58,7 +58,7 @@ Each data provider has a different format for their quote data.
 
 NOTE: Messages from QUOOD reflect _changes_ in market data. Not all fields will be present in every message. Upon subscribing to a channel, you will receive one quote and one trade message containing all fields of the latest data available.
 
-#### Quote Message
+#### Trade Message
 
 ```python
 { 'ticker': 'AAPL.NB',
@@ -126,7 +126,7 @@ NOTE: Messages from QUOOD reflect _changes_ in market data. Not all fields will 
 * **protocol_id** - Internal Quodd ID defining Source of Data
 * **rtl** - Record Transaction Level - number of records published that day
 
-#### Trade Message
+#### Quote Message
 
 ```python
 { 'ticker': 'AAPL.NB',
