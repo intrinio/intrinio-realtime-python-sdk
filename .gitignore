@@ -99,6 +99,7 @@ ENV/
 # mypy
 .mypy_cache/
 
+test.py
 test1.py
 
 .pypirc
