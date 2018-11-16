@@ -93,8 +93,7 @@ class IntrinioRealtimeClient:
         elif self.provider == QUODD:
             auth_url = "https://api.intrinio.com/token?type=QUODD"
         elif self.provider == CRYPTOQUOTE:
-            # auth_url "https://crypto.intrinio.com/auth"
-            auth_url "http://localhost:4000/auth"
+            auth_url = "https://crypto.intrinio.com/auth"
 
         if self.api_key:
             auth_url = self.api_auth_url(auth_url)
@@ -115,8 +114,7 @@ class IntrinioRealtimeClient:
         elif self.provider == QUODD:
             return "wss://www5.quodd.com/websocket/webStreamer/intrinio/" + self.token
         elif self.provider == CRYPTOQUOTE:
-            # return "wss://crypto.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
-            return "ws://localhost:4000/socket/websocket?vsn=1.0.0&token=" + self.token
+            return "wss://crypto.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         
     def connect(self):
         self.logger.info("Connecting...")
