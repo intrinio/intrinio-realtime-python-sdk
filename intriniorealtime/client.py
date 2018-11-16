@@ -85,17 +85,26 @@ class IntrinioRealtimeClient:
         Heartbeat(self).start()
 
     def auth_url(self):
+        auth_url = ""
+
         if self.provider == IEX:
-            if self.api_key:
-                return "https://realtime.intrinio.com/auth?api_key=" + self.api_key
-            else:
-                return "https://realtime.intrinio.com/auth"
+            auth_url = "https://realtime.intrinio.com/auth"
         elif self.provider == QUODD:
-            if self.api_key:
-                return "https://api.intrinio.com/token?type=QUODD&api_key=" + self.api_key
-            else:
-                return "https://api.intrinio.com/token?type=QUODD"
-        
+            auth_url = "https://api.intrinio.com/token?type=QUODD"
+
+        if self.api_key:
+            auth_url = self.api_auth_url(auth_url)
+
+        return auth_url
+
+    def api_auth_url(self, auth_url):
+        if "?" in auth_url:
+            auth_url = auth_url + "&"
+        else:
+            auth_url = auth_url + "?"
+
+        return auth_url + "api_key=" + self.api_key
+
     def websocket_url(self):
         if self.provider == IEX:
             return "wss://realtime.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
