@@ -38,7 +38,7 @@ client.keep_alive()
 
 ## Handling Quotes and the Queue
 
-When the Intrinio Realtime library receives quotes from the websocket connection, it places them in a queue. This queue has a default maximum size of 10,000 quotes. You can modify this value by specifying a `max_queue_size` option, as your environment memory contraints allow. Once a quote has been placed in the queue, it is passed to the `on_quote` handler in the order it was received. Your `on_quote` handler should process quotes quickly, so that the queue does not reach its maximum size (at which point, the system will log an error and ignore any incoming quotes until the queue has space). We recommend using the a thread class or pool for operations such as writing quotes to a database (or anything else involving time-consuming I/O). The `on_quote` handler also receives a `backlog` argument, which is an integer specifying the approximate length of the quote queue. Monitor this to make sure you are processing quotes quickly enough.
+When the Intrinio Realtime library receives quotes from the websocket connection, it places them in a queue. This queue has a default maximum size of 10,000 quotes. You can modify this value by specifying a `max_queue_size` option, as your environment memory constraints allow. Once a quote has been placed in the queue, it is passed to the `on_quote` handler in the order it was received. Your `on_quote` handler should process quotes quickly, so that the queue does not reach its maximum size (at which point, the system will log an error and ignore any incoming quotes until the queue has space). We recommend using the a thread class or pool for operations such as writing quotes to a database (or anything else involving time-consuming I/O). The `on_quote` handler also receives a `backlog` argument, which is an integer specifying the approximate length of the quote queue. Monitor this to make sure you are processing quotes quickly enough.
 
 ## Providers
 
@@ -46,6 +46,7 @@ Currently, Intrinio offers realtime data for this SDK from the following provide
 
 * IEX - [Homepage](https://iextrading.com/)
 * QUODD - [Homepage](http://home.quodd.com/)
+* Cryptoquote - [Homepage](https://www.cryptoquote.io/)
 
 Each has distinct price channels and quote formats, but a very similar API.
 
@@ -172,6 +173,152 @@ NOTE: Messages from QUOOD reflect _changes_ in market data. Not all fields will 
 *   **size** - the size of the `last` trade, or total volume of orders at the top-of-book `bid` or `ask` price
 *   **price** - the price in USD
 
+### Cryptoquote
+
+#### Book Update
+```python
+{ 'pair': {
+    'name': 'BTCUSD',
+    'code': 'btcusd'
+  },
+  'exchange': {
+    'name': 'Gemini',
+    'code': 'gemini'
+  },
+  'side': 'buy',
+  'price': 6337.4,
+  'size': 0.3,
+  'type': 'book_update' }
+```
+
+*   **pair** - details of the currency pair
+  *    **name** - the name of the currency pair
+  *    **code** - the code of the currency pair
+*   **exchange** - details of the exchange from which the message came from
+  *    **name** - the name of the exchange
+  *    **code** - the code of the exchange
+*   **side** - the side of the book this update is for
+  *    **`buy`** - this is an update to the buy side of the book
+  *    **`sell`** - this is an update to the sell side of the book
+*   **price** - the price of this book entry
+*   **size** - the size of this book entry
+*   **type** - the type of message this is
+  *    **`book_update`** - a message that denotes a change to an order book
+  *    **`ticker`** - a snapshot of the market as depicted by the Exchange
+  *    **`trade`** - a trade message (updating `last_trade_price`, `last_trade_time`, and `last_trade_size`)
+
+#### Ticker
+```python
+{ 'last_updated': '2018-10-29 23:08:02.277Z',
+  'pair': {
+    'name': 'BTCUSD',
+    'code': 'btcusd'
+  },
+  'exchange': {
+    'name': 'Binance',
+    'code': 'binance'
+  },
+  'bid': 6326,
+  'bid_size': 6.51933000,
+  'ask': 6326.97,
+  'ask_size': 6.12643000,
+  'change': -151.6899999999996,
+  'change_percent': -2.340895061728389,
+  'volume': 13777.232772,
+  'open': 6480,
+  'high': 6505.01,
+  'low': 6315,
+  'last_trade_time': '2018-10-29 23:08:01.834Z',
+  'last_trade_side': None,
+  'last_trade_price': 6326.97000000,
+  'last_trade_size': 0.00001200,
+  'type': 'ticker' }
+```
+
+*   **last_updated** - a UTC timestamp of when the ticker was last updated
+*   **pair** - details of the currency pair
+  *    **name** - the name of the currency pair
+  *    **code** - the code of the currency pair
+*   **exchange** - details of the exchange from which the message came from
+  *    **name** - the name of the exchange
+  *    **code** - the code of the exchange
+*   **ask** - the ask for the currency pair on the exchange
+*   **ask_size** - the size of the ask for the currency pair on the exchange
+*   **bid** - the bid for the currency pair on the exchange
+*   **bid_size** - the size of the bid for the currency pair on the exchange
+*   **change** - the notional change in price since the last ticker
+*   **change_percent** - the percent change in price since the last ticker
+*   **volume** - the volume of the currency pair on the exchange
+*   **open** - the opening price of the currency pair on the exchange
+*   **high** - the highest price of the currency pair on the exchange
+*   **low** - the lowest price of the currency pair on the exchange
+*   **last_trade_time** - a UTC timestamp of the last trade for the currency pair on the exchange
+*   **last_trade_side** - the side of the last trade
+  *    **`buy`** - this is an update to the buy side of the book
+  *    **`sell`** - this is an update to the sell side of the book
+*   **last_trade_price** - the price of the last trade for the currency pair on the exchange
+*   **last_trade_size** - the size of the last trade for the currency pair on the exchange
+*   **type** - the type of message this is
+  *    **`book_update`** - a message that denotes a change to an order book
+  *    **`ticker`** - a snapshot of the market as depicted by the Exchange
+  *    **`trade`** - a trade message (updating `last_trade_price`, `last_trade_time`, and `last_trade_size`)
+
+#### Trade
+```python
+{ 'last_updated': '2018-10-29 23:08:02.277Z',
+  'pair': {
+    'name': 'BTCUSD',
+    'code': 'btcusd'
+  },
+  'exchange': {
+    'name': 'Gemini',
+    'code': 'gemini'
+  },
+  'bid': None,
+  'bid_size': None,
+  'ask': None,
+  'ask_size': None,
+  'change': -133.40760000000046,
+  'change_percent': -2.059762280845255,
+  'volume': 22121.79710206001,
+  'open': 6476.8445,
+  'high': 6506.2724,
+  'low': 6311,
+  'last_trade_time': '2018-10-29 23:08:01.834Z',
+  'last_trade_side': 'sell',
+  'last_trade_price': 6343.7124,
+  'last_trade_size': 1.6045,
+  'type': 'trade' }
+```
+
+*   **last_updated** - a UTC timestamp of when the ticker was last updated
+*   **pair** - details of the currency pair
+  *    **name** - the name of the currency pair
+  *    **code** - the code of the currency pair
+*   **exchange** - details of the exchange from which the message came from
+  *    **name** - the name of the exchange
+  *    **code** - the code of the exchange
+*   **ask** - the ask for the currency pair on the exchange
+*   **ask_size** - the size of the ask for the currency pair on the exchange
+*   **bid** - the bid for the currency pair on the exchange
+*   **bid_size** - the size of the bid for the currency pair on the exchange
+*   **change** - the notional change in price since the last ticker
+*   **change_percent** - the percent change in price since the last ticker
+*   **volume** - the volume of the currency pair on the exchange
+*   **open** - the opening price of the currency pair on the exchange
+*   **high** - the highest price of the currency pair on the exchange
+*   **low** - the lowest price of the currency pair on the exchange
+*   **last_trade_time** - a UTC timestamp of the last trade for the currency pair on the exchange
+*   **last_trade_side** - the side of the last trade
+  *    **`buy`** - this is an update to the buy side of the book
+  *    **`sell`** - this is an update to the sell side of the book
+*   **last_trade_price** - the price of the last trade for the currency pair on the exchange
+*   **last_trade_size** - the size of the last trade for the currency pair on the exchange
+*   **type** - the type of message this is
+  *    **`book_update`** - a message that denotes a change to an order book
+  *    **`ticker`** - a snapshot of the market as depicted by the Exchange
+  *    **`trade`** - a trade message (updating `last_trade_price`, `last_trade_time`, and `last_trade_size`)
+
 ## Channels
 
 ### QUODD
@@ -188,6 +335,17 @@ To receive price quotes from IEX, you need to instruct the client to "join" a ch
 
 Special access is required for both lobby channels. [Contact us](mailto:sales@intrinio.com) for more information.
 
+### Cryptoquote
+
+To receive price quotes from Cryptoquote, you need to instruct the client to "join" a channel. A channel can be
+* The lobby (`crypto:lobby`) where all message types for all currency pairs are posted
+* The type lobby (`crypto:lobby:{message_type}`) where all messages for the given type for all currency pairs are posted (i.e. `crypto:lobby:trade`)
+* The pair lobby (`crypto:pair:{pair_code}`) where all message types for the provided currency pair are posted (i.e. `crypto:pair:btcusd`)
+* The book_update pair lobby (`crypto:pair:book_update:{pair_code}`) where book_updates for the provided currency pair are posted (i.e. `crypto:pair:book_update:btcusd`)
+* The ticker pair lobby (`crypto:pair:ticker:{pair_code}`) where tickers for the provided currency pair are posted (i.e. `crypto:pair:ticker:btcusd`)
+* The trade pair lobby (`crypto:pair:trade:{pair_code}`) where trades for the provided currency pair are posted (i.e. `crypto:pair:trade:btcusd`)
+
+
 ## API Keys
 You will receive your Intrinio API Key after [creating an account](https://intrinio.com/signup). You will need a subscription to a [realtime data feed](https://intrinio.com/marketplace/data/prices/realtime) as well.
 
@@ -199,7 +357,7 @@ You will receive your Intrinio API Key after [creating an account](https://intri
 * **Parameter** `options.api_key`: Your Intrinio API Key
 * **Parameter** `options.username`: Your Intrinio API Username
 * **Parameter** `options.password`: Your Intrinio API Password
-* **Parameter** `options.provider`: The real-time data provider to use ("iex", "quodd")
+* **Parameter** `options.provider`: The real-time data provider to use ("iex", "quodd", "cryptoquote")
 * **Parameter** `options.on_quote(quote, backlog)`: (optional) A function that handles received quotes. `backlog` is an integer representing the approximate size of the queue of unhandled quotes
 * **Parameter** `options.channels`: (optional) An array of channels to join after connecting
 * **Parameter** `options.logger`: (optional) A Python Logger instance to use for logging
