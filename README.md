@@ -25,8 +25,7 @@ def on_quote(quote, backlog):
     print("QUOTE: " , quote, "BACKLOG LENGTH: ", backlog)
     
 options = {
-    'username': 'YOUR_INTRINIO_API_USERNAME',
-    'password': 'YOUR_INTRINIO_API_PASSWORD',
+    'api_key': 'YOUR_INTRINIO_API_KEY',
     'provider': 'iex',
     'on_quote': on_quote
 }
@@ -187,16 +186,17 @@ To receive price quotes from IEX, you need to instruct the client to "join" a ch
 * The security lobby (`$lobby`) where all price quotes for all securities are posted
 * The security last price lobby (`$lobby_last_price`) where only last price quotes for all securities are posted
 
-Special access is required for both lobby channeles. [Contact us](mailto:sales@intrinio.com) for more information.
+Special access is required for both lobby channels. [Contact us](mailto:sales@intrinio.com) for more information.
 
 ## API Keys
-You will receive your Intrinio API Username and Password after [creating an account](https://intrinio.com/signup). You will need a subscription to a [realtime data feed](https://intrinio.com/marketplace/data/prices/realtime) as well.
+You will receive your Intrinio API Key after [creating an account](https://intrinio.com/signup). You will need a subscription to a [realtime data feed](https://intrinio.com/marketplace/data/prices/realtime) as well.
 
 ## Documentation
 
 ### Methods
 
 `client = IntrinioRealtimeClient(options)` - Creates an Intrinio Realtime client
+* **Parameter** `options.api_key`: Your Intrinio API Key
 * **Parameter** `options.username`: Your Intrinio API Username
 * **Parameter** `options.password`: Your Intrinio API Password
 * **Parameter** `options.provider`: The real-time data provider to use ("iex", "quodd")
@@ -209,8 +209,7 @@ def on_quote(quote, backlog):
     print("QUOTE: " , quote, "BACKLOG LENGTH: ", backlog)
     
 options = {
-    'username': 'YOUR_INTRINIO_API_USERNAME',
-    'password': 'YOUR_INTRINIO_API_PASSWORD',
+    'api_key': 'YOUR_INTRINIO_API_KEY',
     'provider': 'iex',
     'on_quote': on_quote
 }
