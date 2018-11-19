@@ -326,7 +326,7 @@ class QuoteReceiver(threading.Thread):
             if message['event'] == 'quote' or message['event'] == 'trade':
                 quote = message['data']
         elif self.client.provider == CRYPTOQUOTE:
-            if message['event'] == "message":
+            if message['event'] == 'book_update' or message['event'] == 'ticker' or message['event'] == 'trade':
                 quote = message['payload']
 
         if quote:
