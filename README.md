@@ -187,10 +187,10 @@ NOTE: Messages from QUOOD reflect _changes_ in market data. Not all fields will 
   'type': 'book_update' }
 ```
 
-*    **pair_name** - the name of the currency pair
-*    **pair_code** - the code of the currency pair
-*    **exchange_name** - the name of the exchange
-*    **exchange_code** - the code of the exchange
+*   **pair_name** - the name of the currency pair
+*   **pair_code** - the code of the currency pair
+*   **exchange_name** - the name of the exchange
+*   **exchange_code** - the code of the exchange
 *   **side** - the side of the book this update is for
   *    **`buy`** - this is an update to the buy side of the book
   *    **`sell`** - this is an update to the sell side of the book
