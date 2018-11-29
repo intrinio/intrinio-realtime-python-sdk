@@ -224,7 +224,7 @@ NOTE: Nil values for some fields denote no change from previous value.
 *   **last_trade_price** - the price of the last trade for the currency pair on the exchange
 *   **last_trade_size** - the size of the last trade for the currency pair on the exchange
 *   **type** - the type of message this is
-  *    **`level_1`** - a messages that denotes a change to the last traded price or top-of-the-book bid or ask
+  *    **`level_1`** - a message that denotes a change to the last traded price or top-of-the-book bid or ask
   *    **`level_2`** - a message that denotes a change to an order book
 
 #### Level 2 - Book Update
@@ -250,7 +250,7 @@ NOTE: Nil values for some fields denote no change from previous value.
 *   **price** - the price of this book entry
 *   **size** - the size of this book entry
 *   **type** - the type of message this is
-  *    **`level_1`** - a messages that denotes a change to the last traded price or top-of-the-book bid or ask
+  *    **`level_1`** - a message that denotes a change to the last traded price or top-of-the-book bid or ask
   *    **`level_2`** - a message that denotes a change to an order book
 
 ## Channels
