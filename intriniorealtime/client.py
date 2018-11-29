@@ -20,9 +20,10 @@ class IntrinioRealtimeClient:
             raise ValueError("Options parameter is required")
             
         self.options = options
-        self.username = options['username']
-        self.password = options['password']
-        self.provider = options['provider']
+        self.api_key = options.get('api_key')
+        self.username = options.get('username')
+        self.password = options.get('password')
+        self.provider = options.get('provider')
         
         if 'channels' in options:
             self.channels = set(options['channels'])
@@ -47,11 +48,19 @@ class IntrinioRealtimeClient:
         else:
             self.quotes = queue.Queue(maxsize=MAX_QUEUE_SIZE)
         
-        if not self.username:
-            raise ValueError("Parameter 'username' must be specified") 
+
+        if self.api_key:
+            if not self.valid_api_key(self.api_key):
+                raise ValueError("API Key was formatted invalidly")
+        else:
+            if not self.username and not self.password:
+                raise ValueError("API key or username and password are required")
+
+            if not self.username:
+                raise ValueError("Parameter 'username' must be specified")
             
-        if not self.password:
-            raise ValueError("Parameter 'password' must be specified")
+            if not self.password:
+                raise ValueError("Parameter 'password' must be specified")
         
         if 'on_quote' in options:
             if not callable(options['on_quote']):
@@ -76,11 +85,26 @@ class IntrinioRealtimeClient:
         Heartbeat(self).start()
 
     def auth_url(self):
+        auth_url = ""
+
         if self.provider == IEX:
-            return "https://realtime.intrinio.com/auth"
+            auth_url = "https://realtime.intrinio.com/auth"
         elif self.provider == QUODD:
-            return "https://api.intrinio.com/token?type=QUODD"
-        
+            auth_url = "https://api.intrinio.com/token?type=QUODD"
+
+        if self.api_key:
+            auth_url = self.api_auth_url(auth_url)
+
+        return auth_url
+
+    def api_auth_url(self, auth_url):
+        if "?" in auth_url:
+            auth_url = auth_url + "&"
+        else:
+            auth_url = auth_url + "?"
+
+        return auth_url + "api_key=" + self.api_key
+
     def websocket_url(self):
         if self.provider == IEX:
             return "wss://realtime.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
@@ -117,7 +141,10 @@ class IntrinioRealtimeClient:
             pass
 
     def refresh_token(self):
-        response = requests.get(self.auth_url(), auth=(self.username, self.password))
+        if self.api_key:
+            response = requests.get(self.auth_url())
+        else:
+            response = requests.get(self.auth_url(), auth=(self.username, self.password))
         
         if response.status_code != 200:
             raise RuntimeError("Auth failed")
@@ -225,6 +252,15 @@ class IntrinioRealtimeClient:
         else:
             return f"iex:securities:{channel}"
         
+    def valid_api_key(self, api_key):
+        if not isinstance(api_key, str):
+            return False
+
+        if api_key == "":
+            return False
+
+        return True
+
 class QuoteReceiver(threading.Thread):
     def __init__(self, client):
         threading.Thread.__init__(self, args=(), kwargs=None)
