@@ -197,8 +197,6 @@ You will receive your Intrinio API Key after [creating an account](https://intri
 
 `client = IntrinioRealtimeClient(options)` - Creates an Intrinio Realtime client
 * **Parameter** `options.api_key`: Your Intrinio API Key
-* **Parameter** `options.username`: Your Intrinio API Username
-* **Parameter** `options.password`: Your Intrinio API Password
 * **Parameter** `options.provider`: The real-time data provider to use ("iex", "quodd")
 * **Parameter** `options.on_quote(quote, backlog)`: (optional) A function that handles received quotes. `backlog` is an integer representing the approximate size of the queue of unhandled quotes
 * **Parameter** `options.channels`: (optional) An array of channels to join after connecting
