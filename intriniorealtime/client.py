@@ -236,14 +236,7 @@ class IntrinioRealtimeClient:
                     'action': 'subscribe'
                 }
             }
-        elif self.provider == CRYPTOQUOTE:
-            return {
-                'topic': channel,
-                'event': 'phx_join',
-                'payload': {},
-                'ref': None
-            }
-        elif self.provider == FXCM:
+        elif self.provider in [CRYPTOQUOTE, FXCM]:
             return {
                 'topic': channel,
                 'event': 'phx_join',
@@ -267,14 +260,7 @@ class IntrinioRealtimeClient:
                     'action': 'unsubscribe'
                 }
             }
-        elif self.provider == CRYPTOQUOTE:
-            return {
-                'topic': channel,
-                'event': 'phx_leave',
-                'payload': {},
-                'ref': None
-            }
-        elif self.provider == FXCM:
+        elif self.provider in [CRYPTOQUOTE, FXCM]:
             return {
                 'topic': channel,
                 'event': 'phx_leave',
@@ -321,7 +307,7 @@ class QuoteReceiver(threading.Thread):
         
     def on_open(self, ws):
         self.client.logger.info("Websocket opened!")
-        if self.client.provider == IEX or self.client.provider == CRYPTOQUOTE or self.client.provider == FXCM:
+        if self.client.provider in [IEX, CRYPTOQUOTE, FXCM]:
             self.client.on_connect()
 
     def on_close(self, ws):
@@ -387,7 +373,7 @@ class Heartbeat(threading.Thread):
             if self.client.ready and self.client.ws:
                 msg = None
 
-                if self.client.provider == IEX or self.client.provider == CRYPTOQUOTE or self.client.provider == FXCM:
+                if self.client.provider in [IEX, CRYPTOQUOTE, FXCM]:
                     msg = {'topic': 'phoenix', 'event': 'heartbeat', 'payload': {}, 'ref': None}
                 elif self.client.provider == QUODD:
                     msg = {'event': 'heartbeat', 'data': {'action': 'heartbeat', 'ticker': int(time.time()*1000)}}
