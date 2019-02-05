@@ -322,7 +322,10 @@ class QuoteReceiver(threading.Thread):
         self.client.logger.debug(f"Received message: {message}")
         quote = None
         
-        if self.client.provider == IEX:
+        if message['event'] == 'phx_reply' and message['payload']['status'] == 'error':
+            error = message['payload']['response']
+            self.client.logger.error(f"Websocket ERROR: {error}")
+        elif self.client.provider == IEX:
             if message['event'] == "quote":
                 quote = message['payload']
         elif self.client.provider == QUODD:
