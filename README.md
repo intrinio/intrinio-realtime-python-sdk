@@ -1,6 +1,6 @@
-# Intrinio Python SDK for Real-Time Stock & Crypto Prices
+# Intrinio Python SDK for Real-Time Stock, Forex, and Crypto Prices
 
-[Intrinio](https://intrinio.com/) provides real-time stock & crypto prices via a two-way WebSocket connection. To get started, [subscribe to a real-time data feed](https://intrinio.com/marketplace/data/prices/realtime) and follow the instructions below.
+[Intrinio](https://intrinio.com/) provides real-time stock, forex, and crypto prices via a two-way WebSocket connection. To get started, [subscribe to a real-time data feed](https://intrinio.com/marketplace/data/prices/realtime) and follow the instructions below.
 
 ## Requirements
 
@@ -9,8 +9,8 @@
 ## Features
 
 * Receive streaming, real-time price quotes (last trade, bid, ask)
-* Subscribe to updates from individual securities or cryptos
-* Subscribe to updates for all securities or cryptos (contact us for special access)
+* Subscribe to updates from individual securities, forex pairs, or cryptos
+* Subscribe to updates for all securities, forex pairs, or cryptos (contact us for special access)
 
 ## Installation
 ```
@@ -258,10 +258,10 @@ NOTE: Nil values for some fields denote no change from previous value.
 
 #### Price update
 ```python
-{ code: "EUR/USD",
-  bid_price: 1.13685,
-  ask_price: 1.13711,
-  time: "2018-12-18 22:38:06.964Z" }
+{ 'code': "EUR/USD",
+  'bid_price': 1.13685,
+  'ask_price': 1.13711,
+  'time': "2018-12-18 22:38:06.964Z" }
 ```
 
 *   **code** - the code of the fx currency pair
@@ -309,8 +309,8 @@ To receive price quotes from FXCM, you need to instruct the client to "join" a c
 
 The Intrinio REST API provides a listing of pairs, currencies, and their corresponding codes:
 
-* [FX Currencies](https://intrinio.com/documentation/api/currencies)
-* [FX Currency Pairs](https://intrinio.com/documentation/api/currency_pairs)
+* [FX Currencies](https://docs.intrinio.com/documentation/download/currencies)
+* [FX Currency Pairs](https://docs.intrinio.com/documentation/download/currency_pairs)
 
 ## API Keys
 You will receive your Intrinio API Key after [creating an account](https://intrinio.com/signup). You will need a subscription to a [realtime data feed](https://intrinio.com/marketplace/data/prices/realtime) as well.
