@@ -305,7 +305,7 @@ To receive price quotes from FXCM, you need to instruct the client to "join" a c
 
 * `fxcm:pair:{pair_code}` - the fx currency pair channel where price updates for the provided currency pair are posted (i.e. `fxcm:pair:EUR/USD`)
 * `fxcm:base:{currency_code}` - the fx currency channel where prices updates for any fx currency pair that has the provided currency as the base currency (i.e. `fxcm:base:EUR` would post prices from EUR/USD, EUR/JPY, etc.)
-* `fxcm:quote:{currency_code}` - the fx currency channel where prices updates for any fx currency pair that has the provided currency as the quote currency (i.e. `fxcm:quote:EUR` would post prices from EUR/USD, JPY/USD, etc.)
+* `fxcm:quote:{currency_code}` - the fx currency channel where prices updates for any fx currency pair that has the provided currency as the quote currency (i.e. `fxcm:quote:USD` would post prices from EUR/USD, JPY/USD, etc.)
 
 The Intrinio REST API provides a listing of pairs, currencies, and their corresponding codes:
 
