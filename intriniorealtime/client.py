@@ -6,15 +6,34 @@ import websocket
 import json
 import logging
 import queue
+import struct
 
 SELF_HEAL_TIME = 1
 HEARTBEAT_TIME = 3
-IEX = "iex"
-QUODD = "quodd"
-CRYPTOQUOTE = "cryptoquote"
-FXCM = "fxcm"
-PROVIDERS = [IEX, QUODD, CRYPTOQUOTE, FXCM]
+REALTIME = "REALTIME"
+MANUAL = "MANUAL"
+PROVIDERS = [REALTIME, MANUAL]
 MAX_QUEUE_SIZE = 10000
+
+class Quote:
+    def __init__(self, symbol, type, price, size, timestamp):
+        self.symbol = symbol
+        self.type = type
+        self.price = price
+        self.size = size
+        self.timestamp = timestamp
+    def __str__(self):
+        return self.symbol + ", " + self.type + ", price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp)
+
+class Trade:
+    def __init__(self, symbol, price, size, total_volume, timestamp):
+        self.symbol = symbol
+        self.price = price
+        self.size = size
+        self.total_volume = total_volume
+        self.timestamp = timestamp
+    def __str__(self):
+        return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp)
 
 class IntrinioRealtimeClient:
     def __init__(self, options):
@@ -26,6 +45,8 @@ class IntrinioRealtimeClient:
         self.username = options.get('username')
         self.password = options.get('password')
         self.provider = options.get('provider')
+        self.ipaddress = options.get('ipaddress')
+        self.tradesonly = options.get('tradesonly')
         
         if 'channels' in options:
             self.channels = set(options['channels'])
@@ -89,15 +110,11 @@ class IntrinioRealtimeClient:
     def auth_url(self):
         auth_url = ""
 
-        if self.provider == IEX:
-            auth_url = "https://realtime.intrinio.com/auth"
-        elif self.provider == QUODD:
-            auth_url = "https://api.intrinio.com/token?type=QUODD"
-        elif self.provider == CRYPTOQUOTE:
-            auth_url = "https://crypto.intrinio.com/auth"
-        elif self.provider == FXCM:
-            auth_url = "https://fxcm.intrinio.com/auth"
-
+        if self.provider == REALTIME:
+            auth_url = "https://realtime-mx.intrinio.com/auth"
+        elif self.provider == MANUAL:
+            auth_url = "http://" + self.ipaddress + "/auth"
+       
         if self.api_key:
             auth_url = self.api_auth_url(auth_url)
 
@@ -112,14 +129,10 @@ class IntrinioRealtimeClient:
         return auth_url + "api_key=" + self.api_key
 
     def websocket_url(self):
-        if self.provider == IEX:
-            return "wss://realtime.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
-        elif self.provider == QUODD:
-            return "wss://www5.quodd.com/websocket/webStreamer/intrinio/" + self.token
-        elif self.provider == CRYPTOQUOTE:
-            return "wss://crypto.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
-        elif self.provider == FXCM:
-            return "wss://fxcm.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+        if self.provider == REALTIME:
+            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+        elif self.provider == MANUAL:
+            return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token
         
     def connect(self):
         self.logger.info("Connecting...")
@@ -205,76 +218,44 @@ class IntrinioRealtimeClient:
         new_channels = self.channels - self.joined_channels
         self.logger.debug(f"New channels: {new_channels}")
         for channel in new_channels:
-            msg = self.join_message(channel)
-            self.ws.send(json.dumps(msg))
+            msg = self.join_binary_message(channel)
+            self.ws.send(msg)
             self.logger.info(f"Joined channel {channel}")
         
         # Leave old channels
         old_channels = self.joined_channels - self.channels
         self.logger.debug(f"Old channels: {old_channels}")
         for channel in old_channels:
-            msg = self.leave_message(channel)
-            self.ws.send(json.dumps(msg))
+            msg = self.leave_binary_message(channel)
+            self.ws.send(msg)
             self.logger.info(f"Left channel {channel}")
         
         self.joined_channels = self.channels.copy()
         self.logger.debug(f"Current channels: {self.joined_channels}")
-        
-    def join_message(self, channel):
-        if self.provider == IEX:
-            return {
-                'topic': self.parse_iex_topic(channel),
-                'event': 'phx_join',
-                'payload': {},
-                'ref': None
-            }
-        elif self.provider == QUODD:
-            return {
-                'event': 'subscribe',
-                'data': {
-                    'ticker': channel,
-                    'action': 'subscribe'
-                }
-            }
-        elif self.provider in [CRYPTOQUOTE, FXCM]:
-            return {
-                'topic': channel,
-                'event': 'phx_join',
-                'payload': {},
-                'ref': None
-            }
-            
-    def leave_message(self, channel):
-        if self.provider == IEX:
-            return {
-                'topic': self.parse_iex_topic(channel),
-                'event': 'phx_leave',
-                'payload': {},
-                'ref': None
-            }
-        elif self.provider == QUODD:
-            return {
-                'event': 'unsubscribe',
-                'data': {
-                    'ticker': channel,
-                    'action': 'unsubscribe'
-                }
-            }
-        elif self.provider in [CRYPTOQUOTE, FXCM]:
-            return {
-                'topic': channel,
-                'event': 'phx_leave',
-                'payload': {},
-                'ref': None
-            }
-            
-    def parse_iex_topic(self, channel):
-        if channel == "$lobby":
-            return "iex:lobby"
-        elif channel == "$lobby_last_price":
-            return "iex:lobby:last_price"
+
+    def join_binary_message(self, channel):
+        if channel == "lobby":
+            message = bytearray([74, 1 if self.tradesonly else 0])
+            channel_bytes = bytes("$FIREHOSE", 'ascii')
+            message.extend(channel_bytes)
+            return message
         else:
-            return f"iex:securities:{channel}"
+            message = bytearray([74, 1 if self.tradesonly else 0])
+            channel_bytes = bytes(channel, 'ascii')
+            message.extend(channel_bytes)
+            return message
+
+    def leave_binary_message(self, channel):
+        if channel == "lobby":
+            message = bytearray([76])
+            channel_bytes = bytes("$FIREHOSE", 'ascii')
+            message.extend(channel_bytes)
+            return message
+        else:
+            message = bytearray([76])
+            channel_bytes = bytes(channel, 'ascii')
+            message.extend(channel_bytes)
+            return message
         
     def valid_api_key(self, api_key):
         if not isinstance(api_key, str):
@@ -307,44 +288,22 @@ class QuoteReceiver(threading.Thread):
         
     def on_open(self, ws):
         self.client.logger.info("Websocket opened!")
-        if self.client.provider in [IEX, CRYPTOQUOTE, FXCM]:
+        if self.client.provider in [REALTIME]:
             self.client.on_connect()
 
     def on_close(self, ws):
         self.client.logger.info("Websocket closed!")
 
     def on_error(self, ws, error):
-        self.client.logger.error(f"Websocket ERROR: {error}")
+        self.client.logger.error(f"Websocket ERROR: {error}", error)
         self.client.self_heal()
         
     def on_message(self, ws, message):
-        message = json.loads(message)
-        self.client.logger.debug(f"Received message: {message}")
-        quote = None
-        
-        if message['event'] == 'phx_reply' and message['payload']['status'] == 'error':
-            error = message['payload']['response']
-            self.client.logger.error(f"Websocket ERROR: {error}")
-        elif self.client.provider == IEX:
-            if message['event'] == "quote":
-                quote = message['payload']
-        elif self.client.provider == QUODD:
-            if message['event'] == 'info' and message['data']['message'] == 'Connected':
-                self.client.on_connect()
-            if message['event'] == 'quote' or message['event'] == 'trade':
-                quote = message['data']
-        elif self.client.provider == CRYPTOQUOTE:
-            if message['event'] == 'book_update' or message['event'] == 'ticker' or message['event'] == 'trade':
-                quote = message['payload']
-        elif self.client.provider == FXCM:
-            if message['event'] == 'price_update':
-                quote = message['payload']
-
-        if quote:
-            try:
-                self.client.quotes.put_nowait(quote)
-            except queue.Full:
-                self.client.on_queue_full()
+        self.client.logger.debug(f"Received message: {message}", message.hex())
+        try:
+            self.client.quotes.put_nowait(message)
+        except queue.Full:
+            self.client.on_queue_full()
 
 class QuoteHandler(threading.Thread):
     def __init__(self, client):
@@ -352,16 +311,52 @@ class QuoteHandler(threading.Thread):
         self.daemon = True
         self.client = client
 
+    def parse_quote(self, bytes, start_index, symbol_length):
+        buffer = memoryview(bytes)
+        symbol = bytes[(start_index + 2):(start_index + 2 + symbol_length)].decode("ascii")
+        quote_type = "ask" if bytes[start_index] == 1 else "bid"
+        price = struct.unpack_from('<L', buffer, start_index + 2 + symbol_length)[0] / 10000.0
+        size = struct.unpack_from('<L', buffer, start_index + 6 + symbol_length)[0]
+        timestamp = struct.unpack_from('<Q', buffer, start_index + 10 + symbol_length)[0]
+        return Quote(symbol, quote_type, price, size, timestamp)
+
+    def parse_trade(self, bytes, start_index, symbol_length):
+        buffer = memoryview(bytes)
+        symbol = bytes[(start_index + 2):(start_index + 2 + symbol_length)].decode("ascii")
+        price = struct.unpack_from('<L', buffer, start_index + 2 + symbol_length)[0] / 10000.0
+        size = struct.unpack_from('<L', buffer, start_index + 6 + symbol_length)[0]
+        timestamp = struct.unpack_from('<Q', buffer, start_index + 10 + symbol_length)[0]
+        total_volume = struct.unpack_from('<L', buffer, start_index + 18 + symbol_length)[0]
+        return Trade(symbol, price, size, total_volume, timestamp)
+
+    def parse_message(self, bytes, start_index, backlog_len):
+        type = bytes[start_index]
+        symbol_length = bytes[start_index + 1]
+        item = None
+        new_start_index = None
+        if (type == 0): #this is a trade
+            item = self.parse_trade(bytes, start_index, symbol_length)
+            new_start_index = start_index + 22 + symbol_length
+        else: #type is ask or bid (quote)
+            item = self.parse_quote(bytes, start_index, symbol_length)
+            new_start_index = start_index + 18 + symbol_length
+        if callable(self.client.on_quote):
+            try:
+                self.client.on_quote(item, backlog_len)
+            except Exception as e:
+                self.client.logger.error(e)
+        return new_start_index
+
     def run(self):
         self.client.logger.debug("QuoteHandler ready")
         while True:
-            item = self.client.quotes.get()
+            message = self.client.quotes.get()
             backlog_len = self.client.quotes.qsize()
-            if callable(self.client.on_quote):
-                try:
-                    self.client.on_quote(item, backlog_len)
-                except Exception as e:
-                    self.client.logger.error(e)
+            items_in_message = message[0]
+            start_index = 1
+            for i in range(0, items_in_message):
+                start_index = self.parse_message(message, start_index, backlog_len)
+            
 
 class Heartbeat(threading.Thread):
     def __init__(self, client):
@@ -374,14 +369,5 @@ class Heartbeat(threading.Thread):
         while True:
             time.sleep(HEARTBEAT_TIME)
             if self.client.ready and self.client.ws:
-                msg = None
-
-                if self.client.provider in [IEX, CRYPTOQUOTE, FXCM]:
-                    msg = {'topic': 'phoenix', 'event': 'heartbeat', 'payload': {}, 'ref': None}
-                elif self.client.provider == QUODD:
-                    msg = {'event': 'heartbeat', 'data': {'action': 'heartbeat', 'ticker': int(time.time()*1000)}}
-
-                if msg:
-                    self.client.logger.debug(msg)
-                    self.client.ws.send(json.dumps(msg))
-                    self.client.logger.debug("Heartbeat!")
+                self.client.ws.send("")
+                self.client.logger.debug("Heartbeat!")
