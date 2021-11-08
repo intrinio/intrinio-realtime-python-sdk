@@ -92,6 +92,14 @@ class IntrinioRealtimeClient:
                 self.on_quote = options['on_quote']
         else:
             self.on_quote = None
+
+        if 'on_trade' in options:
+            if not callable(options['on_trade']):
+                raise ValueError("Parameter 'on_trade' must be a function")
+            else:
+                self.on_trade = options['on_trade']
+        else:
+            self.on_trade = None
         
         if self.provider not in PROVIDERS:
             raise ValueError(f"Parameter 'provider' is invalid, use one of {PROVIDERS}")
@@ -337,14 +345,19 @@ class QuoteHandler(threading.Thread):
         if (type == 0): #this is a trade
             item = self.parse_trade(bytes, start_index, symbol_length)
             new_start_index = start_index + 22 + symbol_length
+            if callable(self.client.on_trade):
+                try:
+                    self.client.on_trade(item, backlog_len)
+                except Exception as e:
+                    self.client.logger.error(e)
         else: #type is ask or bid (quote)
             item = self.parse_quote(bytes, start_index, symbol_length)
             new_start_index = start_index + 18 + symbol_length
-        if callable(self.client.on_quote):
-            try:
-                self.client.on_quote(item, backlog_len)
-            except Exception as e:
-                self.client.logger.error(e)
+            if callable(self.client.on_quote):
+                try:
+                    self.client.on_quote(item, backlog_len)
+                except Exception as e:
+                    self.client.logger.error(e)
         return new_start_index
 
     def run(self):

@@ -7,8 +7,7 @@ ask_count = 0
 bid_count = 0
 backlog_count = 0
 
-def on_quote(quote, backlog): 
-        global trade_count
+def on_quote(quote, backlog):
         global ask_count
         global bid_count
         global backlog_count
@@ -16,7 +15,12 @@ def on_quote(quote, backlog):
         if 'type' in quote.__dict__:
             if quote.type == "ask": ask_count += 1
             else: bid_count += 1
-        else: trade_count += 1
+
+def on_trade(trade, backlog): 
+        global trade_count
+        global backlog_count
+        backlog_count = backlog
+        trade_count += 1
 
 class Summarize(threading.Thread):
     def __init__(self, event):
@@ -35,7 +39,8 @@ class Summarize(threading.Thread):
 options = {
     'api_key': '',
     'provider': 'REALTIME',
-    'on_quote': on_quote
+    'on_quote': on_quote,
+    'on_trade': on_trade
 }
 
 client = IntrinioRealtimeClient(options)

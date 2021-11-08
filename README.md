@@ -1,6 +1,9 @@
-# Intrinio Python SDK for Real-Time Stock and Forex Prices
+# intrinio-realtime-options-dotnet-sdk
+SDK for working with Intrinio's realtime Multi-Exchange prices feed.  Intrinio’s Multi-Exchange feed bridges the gap by merging real-time equity pricing from the IEX and MEMX exchanges. Get a comprehensive view with increased market volume and enjoy no exchange fees, no per-user requirements, no permissions or authorizations, and little to no paperwork.
 
-[Intrinio](https://intrinio.com/) provides real-time stock and forex prices via a two-way WebSocket connection. To get started, [subscribe to a real-time data feed](https://intrinio.com/marketplace/data/prices/realtime) and follow the instructions below.
+[Intrinio](https://intrinio.com/) provides real-time stock prices via a two-way WebSocket connection. To get started, [subscribe to a real-time data feed](https://intrinio.com/real-time-multi-exchange) and follow the instructions below.
+
+[Documentation for our legacy realtime client](https://github.com/intrinio/intrinio-realtime-python-sdk/releases/tag/2.2.0)
 
 ## Requirements
 
@@ -9,8 +12,8 @@
 ## Features
 
 * Receive streaming, real-time price quotes (last trade, bid, ask)
-* Subscribe to updates from individual securities or forex pairs
-* Subscribe to updates for all securities or forex pairs
+* Subscribe to updates from individual securities
+* Subscribe to updates for all securities
 
 ## Installation
 ```
@@ -19,206 +22,107 @@ pip install intriniorealtime
 
 ## Example Usage
 ```python
+import threading
+from threading import Timer,Thread,Event
 from intriniorealtime.client import IntrinioRealtimeClient
 
+trade_count = 0
+ask_count = 0
+bid_count = 0
+backlog_count = 0
+
 def on_quote(quote, backlog):
-    print("QUOTE: " , quote, "BACKLOG LENGTH: ", backlog)
-    
+        global ask_count
+        global bid_count
+        global backlog_count
+        backlog_count = backlog
+        if 'type' in quote.__dict__:
+            if quote.type == "ask": ask_count += 1
+            else: bid_count += 1
+
+def on_trade(trade, backlog): 
+        global trade_count
+        global backlog_count
+        backlog_count = backlog
+        trade_count += 1
+
+class Summarize(threading.Thread):
+    def __init__(self, event):
+        threading.Thread.__init__(self, args=(), kwargs=None)
+        self.daemon = True
+        self.stopped = event
+
+    def run(self):
+        global trade_count
+        global bid_count
+        global ask_count
+        global backlog_count
+        while not self.stopped.wait(5):
+            print("trades: " + str(trade_count) + "; asks: " + str(ask_count) + "; bids: " + str(bid_count) + "; backlog: " + str(backlog_count))
+
 options = {
-    'api_key': 'YOUR_INTRINIO_API_KEY',
-    'provider': 'iex',
-    'on_quote': on_quote
+    'api_key': '',
+    'provider': 'REALTIME',
+    'on_quote': on_quote,
+    'on_trade': on_trade
 }
 
 client = IntrinioRealtimeClient(options)
 client.join(['AAPL','GE','MSFT'])
+#client.join(['lobby'])
 client.connect()
+stopFlag = Event()
+summarize_thread = Summarize(stopFlag)
+summarize_thread.start()
 client.keep_alive()
+# this will stop the timer
+stopFlag.set()
 ```
 
 ## Handling Quotes and the Queue
 
-When the Intrinio Realtime library receives quotes from the websocket connection, it places them in a queue. This queue has a default maximum size of 10,000 quotes. You can modify this value by specifying a `max_queue_size` option, as your environment memory constraints allow. Once a quote has been placed in the queue, it is passed to the `on_quote` handler in the order it was received. Your `on_quote` handler should process quotes quickly, so that the queue does not reach its maximum size (at which point, the system will log an error and ignore any incoming quotes until the queue has space). We recommend using the a thread class or pool for operations such as writing quotes to a database (or anything else involving time-consuming I/O). The `on_quote` handler also receives a `backlog` argument, which is an integer specifying the approximate length of the quote queue. Monitor this to make sure you are processing quotes quickly enough.
-
-## Providers
-
-Currently, Intrinio offers realtime data for this SDK from the following providers:
-
-* IEX - [Homepage](https://iextrading.com/)
-* QUODD - [Homepage](http://home.quodd.com/)
-* FXCM - [Homepage](https://www.fxcm.com/)
-
-Each has distinct price channels and quote formats, but a very similar API.
+There are thousands of securities, each with their own feed of activity.  We highly encourage you to make your trade and quote handlers has short as possible and follow a queue pattern so your app can handle the volume of activity.
 
 ## Quote Data Format
 
-Each data provider has a different format for their quote data.
-
-### QUODD
-
-NOTE: Messages from QUOOD reflect _changes_ in market data. Not all fields will be present in every message. Upon subscribing to a channel, you will receive one quote and one trade message containing all fields of the latest data available.
-
-#### Trade Message
+### Quote Message
 
 ```python
-{ 'ticker': 'AAPL.NB',
-  'root_ticker': 'AAPL',
-  'protocol_id': 301,
-  'last_price_4d': 1594850,
-  'trade_volume': 100,
-  'trade_exchange': 't',
-  'change_price_4d': 24950,
-  'percent_change_4d': 15892,
-  'trade_time': 1508165070052,
-  'up_down': 'v',
-  'vwap_4d': 1588482,
-  'total_volume': 10209883,
-  'day_high_4d': 1596600,
-  'day_high_time': 1508164532269,
-  'day_low_4d': 1576500,
-  'day_low_time': 1508160605345,
-  'prev_close_4d': 1569900,
-  'volume_plus': 6333150,
-  'ext_last_price_4d': 1579000,
-  'ext_trade_volume': 100,
-  'ext_trade_exchange': 't',
-  'ext_change_price_4d': 9100,
-  'ext_percent_change_4d': 5796,
-  'ext_trade_time': 1508160600567,
-  'ext_up_down': '-',
-  'open_price_4d': 1582200,
-  'open_volume': 100,
-  'open_time': 1508141103583,
-  'rtl': 30660,
-  'is_halted': False,
-  'is_short_restricted': False }
+{ 'symbol': 'AAPL',
+  'type': 'ask',
+  'price': '102.3',
+  'size': 100,
+  'timestamp': 1636395583000000000 }
 ```
 
-* **ticker** - Stock Symbol for the security
-* **root_ticker** - Underlying symbol for a particular contract
-* **last_price_4d** - The price at which the security most recently traded
-* **trade_volume** - The number of shares that that were traded on the last trade
-* **trade_exchange** - The market center where the last trade occurred
-* **trade_time** - The time at which the security last traded in milliseconds
-* **up_down** - Tick indicator - up or down - indicating if the last trade was up or down from the previous trade
-* **change_price_4d** - The difference between the closing price of a security on the current trading day and the previous day's closing price.
-* **percent_change_4d** - The percentage at which the security is up or down since the previous day's trading
-* **total_volume** - The accumulated total amount of shares traded
-* **volume_plus** - NASDAQ volume plus the volumes from other market centers to more accurately match composite volume. Used for NASDAQ Basic
-* **vwap_4d** - Volume weighted Average Price. VWAP is calculated by adding up the dollars traded for every transaction (price multiplied by number of shares traded) and then dividing by the total shares traded for the day.
-* **day_high_4d** - A security's intra-day high trading price.
-* **day_high_time** - Time that the security reached a new high
-* **day_low_4d** - A security's intra-day low trading price.
-* **day_low_time** - Time that the security reached a new low
-* **ext_last_price_4d** - Extended hours last price (pre or post market)
-* **ext_trade_volume** - The amount of shares traded for a single extended hours trade
-* **ext_trade_exchange** - Extended hours exchange where last trade took place (Pre or post market)
-* **ext_trade_time** - Time of the extended hours trade in milliseconds
-* **ext_up_down** - Extended hours tick indicator - up or down
-* **ext_change_price_4d** - Extended hours change price (pre or post market)
-* **ext_percent_change_4d** - Extended hours percent change (pre or post market)
-* **is_halted** - A flag indicating that the stock is halted and not currently trading
-* **is_short_restricted** - A flag indicating the stock is current short sale restricted - meaning you can not short sale the stock when true
-* **open_price_4d** - The price at which a security first trades upon the opening of an exchange on a given trading day
-* **open_time** - The time at which the security opened in milliseconds
-* **open_volume** - The number of shares that that were traded on the opening trade
-* **prev_close_4d** - The security's closing price on the preceding day of trading
-* **protocol_id** - Internal Quodd ID defining Source of Data
-* **rtl** - Record Transaction Level - number of records published that day
-
-#### Quote Message
-
-```python
-{ 'ticker': 'AAPL.NB',
-  'root_ticker': 'AAPL',
-  'bid_size': 500,
-  'ask_size': 600,
-  'bid_price_4d': 1594800,
-  'ask_price_4d': 1594900,
-  'ask_exchange': 't',
-  'bid_exchange': 't',
-  'quote_time': 1508165070850,
-  'protocol_id': 302,
-  'rtl': 129739 }
-```
-
-* **ticker** - Stock Symbol for the security
-* **root_ticker** - Underlying symbol for a particular contract
-* **ask_price_4d** - The price a seller is willing to accept for a security
-* **ask_size** - The amount of a security that a market maker is offering to sell at the ask price
-* **ask_exchange** - The market center from which the ask is being quoted
-* **bid_price_4d** - A bid price is the price a buyer is willing to pay for a security.
-* **bid_size** - The bid size number of shares being offered for purchase at a specified bid price
-* **bid_exchange** - The market center from which the bid is being quoted
-* **quote_time** - Time of the quote in milliseconds
-* **rtl** - Record Transaction Level - number of records published that day
-* **protocol_id** - Internal Quodd ID defining Source of Data
-
-### IEX
-
-```python
-{ 'type': 'ask',
-  'timestamp': 1493409509.3932788,
-  'ticker': 'GE',
-  'size': 13750,
-  'price': 28.97 }
-```
-
+*   **symbol** - the ticker of the security
 *   **type** - the quote type
-  *    **`last`** - represents the last traded price
-  *    **`bid`** - represents the top-of-book bid price
   *    **`ask`** - represents the top-of-book ask price
-*   **timestamp** - a Unix timestamp (with microsecond precision)
-*   **ticker** - the ticker of the security
-*   **size** - the size of the `last` trade, or total volume of orders at the top-of-book `bid` or `ask` price
+  *    **`bid`** - represents the top-of-book bid price
 *   **price** - the price in USD
+*   **size** - the size of the `last` trade, or total volume of orders at the top-of-book `bid` or `ask` price
+*   **timestamp** - a Unix timestamp (nanoseconds since unix epoch)
 
-### FXCM
 
-#### Price update
+### Trade Message
+
 ```python
-{ 'code': "EUR/USD",
-  'bid_price': 1.13685,
-  'ask_price': 1.13711,
-  'time': "2018-12-18 22:38:06.964Z" }
+{ 'symbol': 'AAPL',
+  'total_volume': '106812',
+  'price': '102.3',
+  'size': 100,
+  'timestamp': 1636395583000000000 }
 ```
 
-*   **code** - the code of the fx currency pair
-*   **bid_price** - the bid price is the price a buyer is willing to pay
-*   **ask_price** - the ask price is the price a seller is willing to accept
-*   **time** - the UTC timestamp of the price update
+*   **symbol** - the ticker of the security
+*   **total_volume** - the total volume of trades for the security so far today.
+*   **price** - the price in USD
+*   **size** - the size of the `last` trade, or total volume of orders at the top-of-book `bid` or `ask` price
+*   **timestamp** - a Unix timestamp (nanoseconds since unix epoch)
 
-## Channels
-
-### QUODD
-
-To receive price quotes from QUODD, you need to instruct the client to "join" a channel. A channel can be
-* A security ticker with data feed designation (`AAPL.NB`, `MSFT.NB`, `GE.NB`, etc)
-
-### IEX
-
-To receive price quotes from IEX, you need to instruct the client to "join" a channel. A channel can be
-* A security ticker (`AAPL`, `MSFT`, `GE`, etc)
-* The security lobby (`$lobby`) where all price quotes for all securities are posted
-* The security last price lobby (`$lobby_last_price`) where only last price quotes for all securities are posted
-
-Special access is required for both lobby channels. [Contact us](mailto:sales@intrinio.com) for more information.
-
-### FXCM
-
-To receive price quotes from FXCM, you need to instruct the client to "join" a channel. A channel can be
-
-* `fxcm:pair:{pair_code}` - the fx currency pair channel where price updates for the provided currency pair are posted (i.e. `fxcm:pair:EUR/USD`)
-* `fxcm:base:{currency_code}` - the fx currency channel where prices updates for any fx currency pair that has the provided currency as the base currency (i.e. `fxcm:base:EUR` would post prices from EUR/USD, EUR/JPY, etc.)
-* `fxcm:quote:{currency_code}` - the fx currency channel where prices updates for any fx currency pair that has the provided currency as the quote currency (i.e. `fxcm:quote:USD` would post prices from EUR/USD, JPY/USD, etc.)
-
-The Intrinio REST API provides a listing of pairs, currencies, and their corresponding codes:
-
-* [FX Currencies](https://docs.intrinio.com/documentation/download/currencies)
-* [FX Currency Pairs](https://docs.intrinio.com/documentation/download/currency_pairs)
 
 ## API Keys
-You will receive your Intrinio API Key after [creating an account](https://intrinio.com/signup). You will need a subscription to a [realtime data feed](https://intrinio.com/marketplace/data/prices/realtime) as well.
+You will receive your Intrinio API Key after [creating an account](https://intrinio.com/signup). You will need a subscription to a [realtime data feed](https://intrinio.com/real-time-multi-exchange) as well.
 
 ## Documentation
 
@@ -226,24 +130,35 @@ You will receive your Intrinio API Key after [creating an account](https://intri
 
 `client = IntrinioRealtimeClient(options)` - Creates an Intrinio Realtime client
 * **Parameter** `options.api_key`: Your Intrinio API Key
-* **Parameter** `options.provider`: The real-time data provider to use ("iex", "quodd")
-* **Parameter** `options.on_quote(quote, backlog)`: (optional) A function that handles received quotes. `backlog` is an integer representing the approximate size of the queue of unhandled quotes
-* **Parameter** `options.channels`: (optional) An array of channels to join after connecting
+* **Parameter** `options.provider`: The real-time data provider to use ("REALTIME")
+* **Parameter** `options.on_quote(quote, backlog)`: A function that handles received quotes. `backlog` is an integer representing the approximate size of the queue of unhandled quote/trade events.
+* **Parameter** `options.on_trade(quote, backlog)`: A function that handles received trades. `backlog` is an integer representing the approximate size of the queue of unhandled quote/trade events.
 * **Parameter** `options.logger`: (optional) A Python Logger instance to use for logging
 
 ```python
 def on_quote(quote, backlog):
     print("QUOTE: " , quote, "BACKLOG LENGTH: ", backlog)
+def on_trade(trade, backlog):
+    print("TRADE: " , trade, "BACKLOG LENGTH: ", backlog)
     
 options = {
-    'api_key': 'YOUR_INTRINIO_API_KEY',
-    'provider': 'iex',
-    'on_quote': on_quote
+    'api_key': '',
+    'provider': 'REALTIME',
+    'on_quote': on_quote,
+    'on_trade': on_trade
 }
 
 client = IntrinioRealtimeClient(options)
 ```
 
+---------
+
+`client.join(channels)` - Joins the given channels. This can be called at any time. The client will automatically register joined channels and establish the proper subscriptions with the WebSocket connection.
+* **Parameter** `channels` - A single channel or list of channels. Use 'lobby' to subscribe to everything (requires firehose enabled on your subscription).
+```python
+client.join(["AAPL", "MSFT", "GE"])
+client.join("GOOG")
+```
 ---------
 
 `client.connect()` - Retrieves an auth token, opens the WebSocket connection, starts the self-healing and heartbeat intervals, joins requested channels.
@@ -264,15 +179,6 @@ def on_quote(quote, backlog):
     print("QUOTE: " , quote, "BACKLOG LENGTH: ", backlog)
     
 client.on_quote = on_quote
-```
-
----------
-
-`client.join(channels)` - Joins the given channels. This can be called at any time. The client will automatically register joined channels and establish the proper subscriptions with the WebSocket connection.
-* **Parameter** `channels` - A single channel or list of channels
-```python
-client.join(["AAPL", "MSFT", "GE"])
-client.join("GOOG")
 ```
 
 ---------
