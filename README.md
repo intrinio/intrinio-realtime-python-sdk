@@ -62,12 +62,10 @@ class Summarize(threading.Thread):
 
 options = {
     'api_key': '',
-    'provider': 'REALTIME',
-    'on_quote': on_quote,
-    'on_trade': on_trade
+    'provider': 'REALTIME'
 }
 
-client = IntrinioRealtimeClient(options)
+client = IntrinioRealtimeClient(options, on_trade, on_quote)
 client.join(['AAPL','GE','MSFT'])
 #client.join(['lobby'])
 client.connect()

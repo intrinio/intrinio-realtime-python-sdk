@@ -36,7 +36,7 @@ class Trade:
         return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp)
 
 class IntrinioRealtimeClient:
-    def __init__(self, options):
+    def __init__(self, options, on_trade, on_quote):
         if options is None:
             raise ValueError("Options parameter is required")
             
@@ -85,21 +85,17 @@ class IntrinioRealtimeClient:
             if not self.password:
                 raise ValueError("Parameter 'password' must be specified")
         
-        if 'on_quote' in options:
-            if not callable(options['on_quote']):
-                raise ValueError("Parameter 'on_quote' must be a function")
-            else:
-                self.on_quote = options['on_quote']
-        else:
+        if not callable(on_quote):
             self.on_quote = None
-
-        if 'on_trade' in options:
-            if not callable(options['on_trade']):
-                raise ValueError("Parameter 'on_trade' must be a function")
-            else:
-                self.on_trade = options['on_trade']
+            raise ValueError("Parameter 'on_quote' must be a function")
         else:
+            self.on_quote = on_quote
+
+        if not callable(on_trade):
             self.on_trade = None
+            raise ValueError("Parameter 'on_trade' must be a function")
+        else:
+            self.on_trade = on_trade
         
         if self.provider not in PROVIDERS:
             raise ValueError(f"Parameter 'provider' is invalid, use one of {PROVIDERS}")
