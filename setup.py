@@ -7,15 +7,16 @@ def readme():
 setup(
     name = 'intriniorealtime',
     packages = ['intriniorealtime'],
-    version = '2.2.0',
+    version = '3.0.0',
     author = 'Intrinio Python SDK for Real-Time Stock Prices',
     author_email = 'success@intrinio.com',
     url = 'https://intrinio.com',
     description = 'Intrinio Python SDK for Real-Time Stock Prices',
     long_description = readme(),
+    long_description_content_type = 'text/markdown',
     install_requires = ['requests==2.19.1','websocket-client==0.48.0'],
     python_requires = '~=3.6',
-    download_url = 'https://github.com/intrinio/intrinio-realtime-python-sdk/archive/v2.0.0.tar.gz',
+    download_url = 'https://github.com/intrinio/intrinio-realtime-python-sdk/archive/v3.0.0.tar.gz',
     keywords = ['realtime','stock prices','intrinio','stock market','stock data','financial'],
     classifiers = [
         'Intended Audience :: Financial and Insurance Industry',
