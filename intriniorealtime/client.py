@@ -6,8 +6,8 @@ import logging
 import queue
 import struct
 
-SELF_HEAL_TIME = 1
-HEARTBEAT_TIME = 3
+SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
+HEARTBEAT_TIME = 20
 REALTIME = "REALTIME"
 MANUAL = "MANUAL"
 PROVIDERS = [REALTIME, MANUAL]
@@ -105,6 +105,7 @@ class IntrinioRealtimeClient:
         self.quote_handler = None
         self.joined_channels = set()
         self.last_queue_warning_time = 0
+        self.last_self_heal_backoff = -1
         
         QuoteHandler(self).start()
         Heartbeat(self).start()
@@ -135,7 +136,14 @@ class IntrinioRealtimeClient:
             return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         elif self.provider == MANUAL:
             return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token
-        
+
+    def do_backoff(self, fn):
+        self.last_self_heal_backoff += 1
+        i = min(self.last_self_heal_backoff, len(SELF_HEAL_BACKOFFS) - 1)
+        backoff = SELF_HEAL_BACKOFFS[i]
+        time.sleep(backoff)
+        fn()
+
     def connect(self):
         self.logger.info("Connecting...")
         
@@ -144,14 +152,13 @@ class IntrinioRealtimeClient:
         
         if self.ws:
             self.ws.close()
-            time.sleep(1)
-            
+            time.sleep(3)
         try:
             self.refresh_token()
             self.refresh_websocket()
         except Exception as e:
             self.logger.error(f"Cannot connect: {e}")
-            return self.self_heal()
+            self.do_backoff(self.connect)
             
     def disconnect(self):
         self.ready = False
@@ -174,20 +181,17 @@ class IntrinioRealtimeClient:
         
         if response.status_code != 200:
             raise RuntimeError("Auth failed")
-            
+        
         self.token = response.text
         self.logger.info("Authentication successful!")
 
     def refresh_websocket(self):
         self.quote_receiver = QuoteReceiver(self)
         self.quote_receiver.start()
-
-    def self_heal(self):
-        time.sleep(SELF_HEAL_TIME)
-        self.connect()
             
     def on_connect(self):
         self.ready = True
+        self.last_self_heal_backoff = -1
         self.refresh_channels()
         
     def on_queue_full(self):
