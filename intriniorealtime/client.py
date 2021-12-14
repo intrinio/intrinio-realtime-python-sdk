@@ -1,9 +1,7 @@
 import time
-import base64
 import requests
 import threading
 import websocket
-import json
 import logging
 import queue
 import struct
@@ -168,10 +166,11 @@ class IntrinioRealtimeClient:
             pass
 
     def refresh_token(self):
+        headers = {'Client-Information': 'IntrinioPythonSDKv3.1'}
         if self.api_key:
-            response = requests.get(self.auth_url())
+            response = requests.get(self.auth_url(), headers=headers)
         else:
-            response = requests.get(self.auth_url(), auth=(self.username, self.password))
+            response = requests.get(self.auth_url(), auth=(self.username, self.password), headers=headers)
         
         if response.status_code != 200:
             raise RuntimeError("Auth failed")
@@ -292,8 +291,7 @@ class QuoteReceiver(threading.Thread):
         
     def on_open(self, ws):
         self.client.logger.info("Websocket opened!")
-        if self.client.provider in [REALTIME]:
-            self.client.on_connect()
+        self.client.on_connect()
 
     def on_close(self, ws):
         self.client.logger.info("Websocket closed!")
