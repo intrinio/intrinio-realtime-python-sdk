@@ -103,3 +103,5 @@ test.py
 test1.py
 
 .pypirc
+
+.vs/
