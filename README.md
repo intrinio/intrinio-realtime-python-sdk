@@ -152,10 +152,11 @@ client = IntrinioRealtimeClient(options)
 ---------
 
 `client.join(channels)` - Joins the given channels. This can be called at any time. The client will automatically register joined channels and establish the proper subscriptions with the WebSocket connection.
-* **Parameter** `channels` - A single channel or list of channels. Use 'lobby' to subscribe to everything (requires firehose enabled on your subscription).
+* **Parameter** `channels` - A single channel or list of channels. You can also use the special symbol, "lobby" to join the firehose channel and recieved updates for all ticker symbols (you must have a valid "firehose" subscription).
 ```python
 client.join(["AAPL", "MSFT", "GE"])
 client.join("GOOG")
+client.join("lobby")
 ```
 ---------
 
