@@ -173,7 +173,7 @@ class IntrinioRealtimeClient:
             pass
 
     def refresh_token(self):
-        headers = {'Client-Information': 'IntrinioPythonSDKv3.1'}
+        headers = {'Client-Information': 'IntrinioPythonSDKv4.0'}
         if self.api_key:
             response = requests.get(self.auth_url(), headers=headers)
         else:
@@ -321,7 +321,7 @@ class QuoteHandler(threading.Thread):
         buffer = memoryview(bytes)
         symbol = bytes[(start_index + 2):(start_index + 2 + symbol_length)].decode("ascii")
         quote_type = "ask" if bytes[start_index] == 1 else "bid"
-        price = struct.unpack_from('<L', buffer, start_index + 2 + symbol_length)[0] / 10000.0
+        price = struct.unpack_from('<f', buffer, start_index + 2 + symbol_length)[0]
         size = struct.unpack_from('<L', buffer, start_index + 6 + symbol_length)[0]
         timestamp = struct.unpack_from('<Q', buffer, start_index + 10 + symbol_length)[0]
         return Quote(symbol, quote_type, price, size, timestamp)
@@ -329,7 +329,7 @@ class QuoteHandler(threading.Thread):
     def parse_trade(self, bytes, start_index, symbol_length):
         buffer = memoryview(bytes)
         symbol = bytes[(start_index + 2):(start_index + 2 + symbol_length)].decode("ascii")
-        price = struct.unpack_from('<L', buffer, start_index + 2 + symbol_length)[0] / 10000.0
+        price = struct.unpack_from('<f', buffer, start_index + 2 + symbol_length)[0]
         size = struct.unpack_from('<L', buffer, start_index + 6 + symbol_length)[0]
         timestamp = struct.unpack_from('<Q', buffer, start_index + 10 + symbol_length)[0]
         total_volume = struct.unpack_from('<L', buffer, start_index + 18 + symbol_length)[0]
