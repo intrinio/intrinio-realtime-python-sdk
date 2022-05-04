@@ -1,4 +1,7 @@
 import threading
+import signal
+import time
+import sys
 from threading import Timer,Thread,Event
 from intriniorealtime.client import IntrinioRealtimeClient
 
@@ -23,31 +26,41 @@ def on_trade(trade, backlog):
         trade_count += 1
 
 class Summarize(threading.Thread):
-    def __init__(self, event):
+    def __init__(self, stop_flag):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
-        self.stopped = event
+        self.stop_flag = stop_flag
 
     def run(self):
         global trade_count
         global bid_count
         global ask_count
         global backlog_count
-        while not self.stopped.wait(5):
+        while not self.stop_flag.wait(5):
             print("trades: " + str(trade_count) + "; asks: " + str(ask_count) + "; bids: " + str(bid_count) + "; backlog: " + str(backlog_count))
 
 options = {
-    'api_key': '',
+    'api_key': 'OjEyOTk1MzNkMjEwZmY4MmYxNTRiMzhhYmY3NWIwOGYy',
     'provider': 'REALTIME'
 }
 
 client = IntrinioRealtimeClient(options, on_trade, on_quote)
+stop_flag = Event()
+
+def on_kill_process(sig, frame):
+    print("Stopping")
+    stop_flag.set()
+    client.disconnect()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, on_kill_process)
+
 client.join(['AAPL','GE','MSFT'])
 #client.join(['lobby'])
 client.connect()
-stopFlag = Event()
-summarize_thread = Summarize(stopFlag)
+
+summarize_thread = Summarize(stop_flag)
 summarize_thread.start()
-client.keep_alive()
-# this will stop the timer
-stopFlag.set()
+
+time.sleep()
+# this will stop the summarize thread

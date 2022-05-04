@@ -23,6 +23,7 @@ pip install intriniorealtime
 ## Example Usage
 ```python
 import threading
+import time
 from threading import Timer,Thread,Event
 from intriniorealtime.client import IntrinioRealtimeClient
 
@@ -61,7 +62,7 @@ class Summarize(threading.Thread):
             print("trades: " + str(trade_count) + "; asks: " + str(ask_count) + "; bids: " + str(bid_count) + "; backlog: " + str(backlog_count))
 
 options = {
-    'api_key': '',
+    'api_key': 'API_KEY_HERE',
     'provider': 'REALTIME'
 }
 
@@ -72,8 +73,9 @@ client.connect()
 stopFlag = Event()
 summarize_thread = Summarize(stopFlag)
 summarize_thread.start()
-client.keep_alive()
-# this will stop the timer
+time.sleep(10)
+client.disconnect()
+# this will stop the summarize thread
 stopFlag.set()
 ```
 
