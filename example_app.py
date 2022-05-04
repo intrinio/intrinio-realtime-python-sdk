@@ -1,4 +1,5 @@
 import threading
+import time
 from threading import Timer,Thread,Event
 from intriniorealtime.client import IntrinioRealtimeClient
 
@@ -48,6 +49,7 @@ client.connect()
 stopFlag = Event()
 summarize_thread = Summarize(stopFlag)
 summarize_thread.start()
-client.keep_alive()
-# this will stop the timer
+time.sleep(10)
+client.disconnect()
+# this will stop the summarize thread
 stopFlag.set()

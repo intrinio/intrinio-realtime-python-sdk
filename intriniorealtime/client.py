@@ -102,13 +102,13 @@ class IntrinioRealtimeClient:
         self.token = None
         self.ws = None
         self.quote_receiver = None
-        self.quote_handler = None
+        self.quote_handler = QuoteHandler(self)
         self.joined_channels = set()
         self.last_queue_warning_time = 0
         self.last_self_heal_backoff = -1
-        
-        QuoteHandler(self).start()
-        Heartbeat(self).start()
+        self.heartbeater = Heartbeat(self)
+        self.quote_handler.start()
+        self.heartbeater.start()
 
     def auth_url(self):
         auth_url = ""
@@ -167,13 +167,9 @@ class IntrinioRealtimeClient:
         if self.ws:
             self.ws.close()
             time.sleep(1)
-            
-    def keep_alive(self):
-        while True:
-            pass
 
     def refresh_token(self):
-        headers = {'Client-Information': 'IntrinioPythonSDKv4.0'}
+        headers = {'Client-Information': 'IntrinioPythonSDKv4.0.1'}
         if self.api_key:
             response = requests.get(self.auth_url(), headers=headers)
         else:
@@ -283,24 +279,24 @@ class QuoteReceiver(threading.Thread):
     def run(self):
         self.client.ws = websocket.WebSocketApp(
             self.client.websocket_url(), 
-            on_open = self.on_open, 
+            on_open = self.on_open,
             on_close = self.on_close,
-            on_message = self.on_message, 
+            on_message = self.on_message,
             on_error = self.on_error
         )
-            
+
         self.client.logger.debug("QuoteReceiver ready")
         self.client.ws.run_forever()
         self.client.logger.debug("QuoteReceiver exiting")
-        
+
     def on_open(self, ws):
         self.client.logger.info("Websocket opened!")
         self.client.on_connect()
 
-    def on_close(self, ws):
+    def on_close(self, ws, code, message):
         self.client.logger.info("Websocket closed!")
 
-    def on_error(self, ws, error):
+    def on_error(self, ws, error, *args):
         self.client.logger.error(f"Websocket ERROR: {error}", error)
         self.client.self_heal()
         
@@ -367,7 +363,7 @@ class QuoteHandler(threading.Thread):
             start_index = 1
             for i in range(0, items_in_message):
                 start_index = self.parse_message(message, start_index, backlog_len)
-            
+
 
 class Heartbeat(threading.Thread):
     def __init__(self, client):
