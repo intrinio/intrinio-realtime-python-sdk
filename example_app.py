@@ -40,7 +40,7 @@ class Summarize(threading.Thread):
             print("trades: " + str(trade_count) + "; asks: " + str(ask_count) + "; bids: " + str(bid_count) + "; backlog: " + str(backlog_count))
 
 options = {
-    'api_key': 'OjEyOTk1MzNkMjEwZmY4MmYxNTRiMzhhYmY3NWIwOGYy',
+    'api_key': 'API_KEY_HERE',
     'provider': 'REALTIME'
 }
 
