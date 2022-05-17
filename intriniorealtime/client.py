@@ -6,6 +6,7 @@ import logging
 import queue
 import struct
 import sys
+import wsaccel
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 HEARTBEAT_TIME = 20
@@ -143,29 +144,30 @@ class IntrinioRealtimeClient:
         elif self.provider == MANUAL:
             return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token
 
-    def do_backoff(self, fn):
+    def do_backoff(self):
         self.last_self_heal_backoff += 1
         i = min(self.last_self_heal_backoff, len(SELF_HEAL_BACKOFFS) - 1)
         backoff = SELF_HEAL_BACKOFFS[i]
         time.sleep(backoff)
-        fn()
 
     def connect(self):
-        self.logger.info("Connecting...")
+        connected = False
+        while not connected:
+            try:
+                self.logger.info("Connecting...")
+                self.ready = False
+                self.joined_channels = set()
 
-        self.ready = False
-        self.joined_channels = set()
+                if self.ws:
+                    self.ws.close()
+                    time.sleep(3)
 
-        if self.ws:
-            self.ws.close()
-            time.sleep(3)
-        try:
-            self.refresh_token()
-            self.refresh_websocket()
-            self.last_self_heal_backoff = 0  # reset counter because success.
-        except Exception as e:
-            self.logger.error(f"Cannot connect: {repr(e)}")
-            self.do_backoff(self.connect)
+                self.refresh_token()
+                self.refresh_websocket()
+                connected = True
+            except Exception as e:
+                self.logger.error(f"Cannot connect: {repr(e)}")
+                self.do_backoff()
 
     def disconnect(self):
         self.ready = False
@@ -294,7 +296,7 @@ class QuoteReceiver(threading.Thread):
         )
 
         self.client.logger.debug("QuoteReceiver ready")
-        self.client.ws.run_forever()
+        self.client.ws.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
         self.client.logger.debug("QuoteReceiver exiting")
 
     def on_open(self, ws):
@@ -305,8 +307,12 @@ class QuoteReceiver(threading.Thread):
         self.client.logger.info("Websocket closed!")
 
     def on_error(self, ws, error, *args):
-        self.client.logger.error(f"Websocket ERROR: {error}")
-        self.client.self_heal()
+        try:
+            self.client.logger.error(f"Websocket ERROR: {error}")
+            self.client.self_heal()
+        except Exception as e:
+            self.client.logger.error(f"Error in on_error self_heal(): {repr(e)}; {repr(error)}")
+            raise e
 
     def on_message(self, ws, message):
         try:
