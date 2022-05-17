@@ -309,9 +309,9 @@ class QuoteReceiver(threading.Thread):
     def on_error(self, ws, error, *args):
         try:
             self.client.logger.error(f"Websocket ERROR: {error}")
-            self.client.self_heal()
+            self.client.connect()
         except Exception as e:
-            self.client.logger.error(f"Error in on_error self_heal(): {repr(e)}; {repr(error)}")
+            self.client.logger.error(f"Error in on_error handler: {repr(e)}; {repr(error)}")
             raise e
 
     def on_message(self, ws, message):
