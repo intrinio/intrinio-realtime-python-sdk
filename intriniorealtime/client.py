@@ -14,7 +14,7 @@ REALTIME = "REALTIME"
 MANUAL = "MANUAL"
 PROVIDERS = [REALTIME, MANUAL]
 MAX_QUEUE_SIZE = 10000
-DEBUGGING = sys.gettrace() is None
+DEBUGGING = not (sys.gettrace() is None)
 
 
 class Quote:
