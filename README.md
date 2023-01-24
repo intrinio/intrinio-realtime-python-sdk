@@ -14,6 +14,7 @@ SDK for working with Intrinio's realtime Multi-Exchange prices feed.  Intrinioâ€
 * Receive streaming, real-time price quotes (last trade, bid, ask)
 * Subscribe to updates from individual securities
 * Subscribe to updates for all securities
+* Multiple sources of data - REALTIME or DELAYED_SIP
 
 ## Installation
 ```
@@ -63,7 +64,7 @@ class Summarize(threading.Thread):
 
 options = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'REALTIME'
+    'provider': 'REALTIME' # or 'DELAYED_SIP'
 }
 
 client = IntrinioRealtimeClient(options, on_trade, on_quote)
@@ -130,7 +131,7 @@ You will receive your Intrinio API Key after [creating an account](https://intri
 
 `client = IntrinioRealtimeClient(options)` - Creates an Intrinio Realtime client
 * **Parameter** `options.api_key`: Your Intrinio API Key
-* **Parameter** `options.provider`: The real-time data provider to use ("REALTIME")
+* **Parameter** `options.provider`: The real-time data provider to use ("REALTIME" or "DELAYED_SIP")
 * **Parameter** `options.on_quote(quote, backlog)`: A function that handles received quotes. `backlog` is an integer representing the approximate size of the queue of unhandled quote/trade events.
 * **Parameter** `options.on_trade(quote, backlog)`: A function that handles received trades. `backlog` is an integer representing the approximate size of the queue of unhandled quote/trade events.
 * **Parameter** `options.logger`: (optional) A Python Logger instance to use for logging

@@ -11,6 +11,7 @@ import wsaccel
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 HEARTBEAT_TIME = 20
 REALTIME = "REALTIME"
+DELAYED_SIP = "DELAYED_SIP"
 MANUAL = "MANUAL"
 PROVIDERS = [REALTIME, MANUAL]
 MAX_QUEUE_SIZE = 10000
@@ -122,6 +123,8 @@ class IntrinioRealtimeClient:
 
         if self.provider == REALTIME:
             auth_url = "https://realtime-mx.intrinio.com/auth"
+        elif self.provider == DELAYED_SIP:
+            auth_url = "https://realtime-delayed-sip.intrinio.com/auth"
         elif self.provider == MANUAL:
             auth_url = "http://" + self.ipaddress + "/auth"
 
@@ -141,6 +144,8 @@ class IntrinioRealtimeClient:
     def websocket_url(self):
         if self.provider == REALTIME:
             return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+        elif self.provider == DELAYED_SIP:
+            return "wss://realtime-delayed-sip.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         elif self.provider == MANUAL:
             return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token
 
@@ -178,7 +183,7 @@ class IntrinioRealtimeClient:
             time.sleep(1)
 
     def refresh_token(self):
-        headers = {'Client-Information': 'IntrinioPythonSDKv4.1.0'}
+        headers = {'Client-Information': 'IntrinioPythonSDKv4.2.0'}
         if self.api_key:
             response = requests.get(self.auth_url(), headers=headers)
         else:
