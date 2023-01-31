@@ -42,7 +42,7 @@ class Summarize(threading.Thread):
 
 options = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'REALTIME'
+    'provider': 'REALTIME'  # 'REALTIME' or DELAYED_SIP
 }
 
 
@@ -67,7 +67,7 @@ client.connect()
 summarize_thread = Summarize(stop_event)
 summarize_thread.start()
 
-time.sleep(30)
+time.sleep(120)
 # sigint, or ctrl+c, during the thread wait will also perform the same below code.
 print("Stopping")
 stop_event.set()
