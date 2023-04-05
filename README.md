@@ -10,6 +10,13 @@ SDK for working with Intrinio's realtime Multi-Exchange prices feed.  Intrinioâ€
 - Python 3.6
 - You need https://pypi.org/project/websocket-client/, not https://pypi.org/project/websocket/.
 
+## Docker
+Add your API key to the example_app.py file, then
+```
+docker compose build
+docker compose run client
+```
+
 ## Features
 
 * Receive streaming, real-time price quotes (last trade, bid, ask)
