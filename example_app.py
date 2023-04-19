@@ -42,7 +42,7 @@ class Summarize(threading.Thread):
 
 options = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'REALTIME'  # 'REALTIME' or DELAYED_SIP
+    'provider': 'REALTIME'  # 'REALTIME' or DELAYED_SIP or NASDAQ_BASIC
 }
 
 

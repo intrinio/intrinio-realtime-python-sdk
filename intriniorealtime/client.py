@@ -12,8 +12,9 @@ SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 HEARTBEAT_TIME = 20
 REALTIME = "REALTIME"
 DELAYED_SIP = "DELAYED_SIP"
+NASDAQ_BASIC = "NASDAQ_BASIC"
 MANUAL = "MANUAL"
-PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP]
+PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC]
 MAX_QUEUE_SIZE = 10000
 DEBUGGING = not (sys.gettrace() is None)
 
@@ -125,6 +126,8 @@ class IntrinioRealtimeClient:
             auth_url = "https://realtime-mx.intrinio.com/auth"
         elif self.provider == DELAYED_SIP:
             auth_url = "https://realtime-delayed-sip.intrinio.com/auth"
+        elif self.provider == NASDAQ_BASIC:
+            auth_url = "https://realtime-nasdaq-basic.intrinio.com/auth"
         elif self.provider == MANUAL:
             auth_url = "http://" + self.ipaddress + "/auth"
 
@@ -146,6 +149,8 @@ class IntrinioRealtimeClient:
             return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         elif self.provider == DELAYED_SIP:
             return "wss://realtime-delayed-sip.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+        elif self.provider == NASDAQ_BASIC:
+            return "wss://realtime-nasdaq-basic.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         elif self.provider == MANUAL:
             return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token
 
@@ -183,7 +188,7 @@ class IntrinioRealtimeClient:
             time.sleep(1)
 
     def refresh_token(self):
-        headers = {'Client-Information': 'IntrinioPythonSDKv4.2.3'}
+        headers = {'Client-Information': 'IntrinioPythonSDKv4.3.0'}
         if self.api_key:
             response = requests.get(self.auth_url(), headers=headers)
         else:
