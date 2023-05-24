@@ -241,7 +241,7 @@ class IntrinioRealtimeClient:
         self.logger.debug(f"New channels: {new_channels}")
         for channel in new_channels:
             msg = self.join_binary_message(channel)
-            self.ws.send(msg)
+            self.ws.send(msg, websocket.ABNF.OPCODE_BINARY)
             self.logger.info(f"Joined channel {channel}")
 
         # Leave old channels
@@ -249,7 +249,7 @@ class IntrinioRealtimeClient:
         self.logger.debug(f"Old channels: {old_channels}")
         for channel in old_channels:
             msg = self.leave_binary_message(channel)
-            self.ws.send(msg)
+            self.ws.send(msg, websocket.ABNF.OPCODE_BINARY)
             self.logger.info(f"Left channel {channel}")
 
         self.joined_channels = self.channels.copy()
