@@ -15,32 +15,45 @@ DELAYED_SIP = "DELAYED_SIP"
 NASDAQ_BASIC = "NASDAQ_BASIC"
 MANUAL = "MANUAL"
 PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC]
+CTA_A = "CTA_A"
+CTA_B = "CTA_B"
+UTP = "UTP"
+OTC = "OTC"
+NASDAQ_BASIC = "NASDAQ_BASIC"
+IEX = "IEX"
+SUB_PROVIDERS = [CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX]
 MAX_QUEUE_SIZE = 10000
 DEBUGGING = not (sys.gettrace() is None)
 
 
 class Quote:
-    def __init__(self, symbol, type, price, size, timestamp):
+    def __init__(self, symbol, type, price, size, timestamp, sub_provider, market_center, condition):
         self.symbol = symbol
         self.type = type
         self.price = price
         self.size = size
         self.timestamp = timestamp
+        self.sub_provider = sub_provider
+        self.market_center = market_center
+        self.condition = condition
 
     def __str__(self):
-        return self.symbol + ", " + self.type + ", price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp)
+        return self.symbol + ", " + self.type + ", price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", sub_provider: " + str(self.sub_provider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
 
 
 class Trade:
-    def __init__(self, symbol, price, size, total_volume, timestamp):
+    def __init__(self, symbol, price, size, total_volume, timestamp, sub_provider, market_center, condition):
         self.symbol = symbol
         self.price = price
         self.size = size
         self.total_volume = total_volume
         self.timestamp = timestamp
+        self.sub_provider = sub_provider
+        self.market_center = market_center
+        self.condition = condition
 
     def __str__(self):
-        return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp)
+        return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", sub_provider: " + str(self.sub_provider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
 
 
 class IntrinioRealtimeClient:
