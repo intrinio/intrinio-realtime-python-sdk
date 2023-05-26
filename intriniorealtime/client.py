@@ -9,7 +9,6 @@ import sys
 import wsaccel
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
-HEARTBEAT_TIME = 20
 REALTIME = "REALTIME"
 DELAYED_SIP = "DELAYED_SIP"
 NASDAQ_BASIC = "NASDAQ_BASIC"
@@ -128,9 +127,7 @@ class IntrinioRealtimeClient:
         self.joined_channels = set()
         self.last_queue_warning_time = 0
         self.last_self_heal_backoff = -1
-        self.heartbeater = Heartbeat(self)
         self.quote_handler.start()
-        self.heartbeater.start()
 
     def auth_url(self):
         auth_url = ""
@@ -415,18 +412,3 @@ class QuoteHandler(threading.Thread):
             start_index = 1
             for i in range(0, items_in_message):
                 start_index = self.parse_message(message, start_index, backlog_len)
-
-
-class Heartbeat(threading.Thread):
-    def __init__(self, client):
-        threading.Thread.__init__(self, args=(), kwargs=None)
-        self.daemon = True
-        self.client = client
-
-    def run(self):
-        self.client.logger.debug("Heartbeat ready")
-        while True:
-            time.sleep(HEARTBEAT_TIME)
-            if self.client.ready and self.client.ws:
-                self.client.ws.send("")
-                self.client.logger.debug("Heartbeat!")
