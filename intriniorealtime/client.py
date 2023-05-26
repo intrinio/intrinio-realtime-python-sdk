@@ -9,38 +9,55 @@ import sys
 import wsaccel
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
-HEARTBEAT_TIME = 20
 REALTIME = "REALTIME"
 DELAYED_SIP = "DELAYED_SIP"
 NASDAQ_BASIC = "NASDAQ_BASIC"
 MANUAL = "MANUAL"
 PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC]
+NO_SUBPROVIDER = "NO_SUBPROVIDER"
+CTA_A = "CTA_A"
+CTA_B = "CTA_B"
+UTP = "UTP"
+OTC = "OTC"
+NASDAQ_BASIC = "NASDAQ_BASIC"
+IEX = "IEX"
+SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX]
 MAX_QUEUE_SIZE = 10000
 DEBUGGING = not (sys.gettrace() is None)
+HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
+HEADER_MESSAGE_FORMAT_VALUE = "v2"
+HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.0.0"
 
 
 class Quote:
-    def __init__(self, symbol, type, price, size, timestamp):
+    def __init__(self, symbol, type, price, size, timestamp, subprovider, market_center, condition):
         self.symbol = symbol
         self.type = type
         self.price = price
         self.size = size
         self.timestamp = timestamp
+        self.subprovider = subprovider
+        self.market_center = market_center
+        self.condition = condition
 
     def __str__(self):
-        return self.symbol + ", " + self.type + ", price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp)
+        return self.symbol + ", " + self.type + ", price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", subprovider: " + str(self.subprovider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
 
 
 class Trade:
-    def __init__(self, symbol, price, size, total_volume, timestamp):
+    def __init__(self, symbol, price, size, total_volume, timestamp, subprovider, market_center, condition):
         self.symbol = symbol
         self.price = price
         self.size = size
         self.total_volume = total_volume
         self.timestamp = timestamp
+        self.subprovider = subprovider
+        self.market_center = market_center
+        self.condition = condition
 
     def __str__(self):
-        return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp)
+        return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", subprovider: " + str(self.subprovider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
 
 
 class IntrinioRealtimeClient:
@@ -115,9 +132,7 @@ class IntrinioRealtimeClient:
         self.joined_channels = set()
         self.last_queue_warning_time = 0
         self.last_self_heal_backoff = -1
-        self.heartbeater = Heartbeat(self)
         self.quote_handler.start()
-        self.heartbeater.start()
 
     def auth_url(self):
         auth_url = ""
@@ -188,7 +203,7 @@ class IntrinioRealtimeClient:
             time.sleep(1)
 
     def refresh_token(self):
-        headers = {'Client-Information': 'IntrinioPythonSDKv4.3.0'}
+        headers = {HEADER_CLIENT_INFORMATION_KEY: HEADER_CLIENT_INFORMATION_VALUE}
         if self.api_key:
             response = requests.get(self.auth_url(), headers=headers)
         else:
@@ -241,7 +256,7 @@ class IntrinioRealtimeClient:
         self.logger.debug(f"New channels: {new_channels}")
         for channel in new_channels:
             msg = self.join_binary_message(channel)
-            self.ws.send(msg)
+            self.ws.send(msg, websocket.ABNF.OPCODE_BINARY)
             self.logger.info(f"Joined channel {channel}")
 
         # Leave old channels
@@ -249,7 +264,7 @@ class IntrinioRealtimeClient:
         self.logger.debug(f"Old channels: {old_channels}")
         for channel in old_channels:
             msg = self.leave_binary_message(channel)
-            self.ws.send(msg)
+            self.ws.send(msg, websocket.ABNF.OPCODE_BINARY)
             self.logger.info(f"Left channel {channel}")
 
         self.joined_channels = self.channels.copy()
@@ -299,6 +314,7 @@ class QuoteReceiver(threading.Thread):
     def run(self):
         self.client.ws = websocket.WebSocketApp(
             self.client.websocket_url(),
+            header={HEADER_MESSAGE_FORMAT_KEY: HEADER_MESSAGE_FORMAT_VALUE, HEADER_CLIENT_INFORMATION_KEY: HEADER_CLIENT_INFORMATION_VALUE},
             on_open=self.on_open,
             on_close=self.on_close,
             on_message=self.on_message,
@@ -352,40 +368,94 @@ class QuoteHandler(threading.Thread):
         self.daemon = True
         self.client = client
 
-    def parse_quote(self, bytes, start_index, symbol_length):
+    def parse_quote(self, bytes, start_index):
         buffer = memoryview(bytes)
-        symbol = bytes[(start_index + 2):(start_index + 2 + symbol_length)].decode("ascii")
+        symbol_length = bytes[start_index + 2]
+        condition_length = bytes[start_index + 22 + symbol_length]
+        symbol = bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
         quote_type = "ask" if bytes[start_index] == 1 else "bid"
-        price = struct.unpack_from('<f', buffer, start_index + 2 + symbol_length)[0]
-        size = struct.unpack_from('<L', buffer, start_index + 6 + symbol_length)[0]
-        timestamp = struct.unpack_from('<Q', buffer, start_index + 10 + symbol_length)[0]
-        return Quote(symbol, quote_type, price, size, timestamp)
+        price = struct.unpack_from('<f', buffer, start_index + 6 + symbol_length)[0]
+        size = struct.unpack_from('<L', buffer, start_index + 10 + symbol_length)[0]
+        timestamp = struct.unpack_from('<Q', buffer, start_index + 14 + symbol_length)[0]
 
-    def parse_trade(self, bytes, start_index, symbol_length):
+        subprovider = None
+        match bytes[3 + symbol_length]:
+            case 0:
+                subprovider = NO_SUBPROVIDER
+            case 1:
+                subprovider = CTA_A
+            case 2:
+                subprovider = CTA_B
+            case 3:
+                subprovider = UTP
+            case 4:
+                subprovider = OTC
+            case 5:
+                subprovider = NASDAQ_BASIC
+            case 6:
+                subprovider = IEX
+            case _:
+                subprovider = IEX
+
+        market_center = bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
+
+        condition = ""
+        if condition_length > 0:
+            condition = bytes[(start_index + 23 + symbol_length):(start_index + 23 + symbol_length + condition_length)].decode("ascii")
+
+        return Quote(symbol, quote_type, price, size, timestamp, subprovider, market_center, condition)
+
+    def parse_trade(self, bytes, start_index):
         buffer = memoryview(bytes)
-        symbol = bytes[(start_index + 2):(start_index + 2 + symbol_length)].decode("ascii")
-        price = struct.unpack_from('<f', buffer, start_index + 2 + symbol_length)[0]
-        size = struct.unpack_from('<L', buffer, start_index + 6 + symbol_length)[0]
-        timestamp = struct.unpack_from('<Q', buffer, start_index + 10 + symbol_length)[0]
-        total_volume = struct.unpack_from('<L', buffer, start_index + 18 + symbol_length)[0]
-        return Trade(symbol, price, size, total_volume, timestamp)
+        symbol_length = bytes[start_index + 2]
+        condition_length = bytes[start_index + 26 + symbol_length]
+        symbol = bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
+        price = struct.unpack_from('<f', buffer, start_index + 6 + symbol_length)[0]
+        size = struct.unpack_from('<L', buffer, start_index + 10 + symbol_length)[0]
+        timestamp = struct.unpack_from('<Q', buffer, start_index + 14 + symbol_length)[0]
+        total_volume = struct.unpack_from('<L', buffer, start_index + 22 + symbol_length)[0]
+
+        subprovider = None
+        match bytes[3 + symbol_length]:
+            case 0:
+                subprovider = NO_SUBPROVIDER
+            case 1:
+                subprovider = CTA_A
+            case 2:
+                subprovider = CTA_B
+            case 3:
+                subprovider = UTP
+            case 4:
+                subprovider = OTC
+            case 5:
+                subprovider = NASDAQ_BASIC
+            case 6:
+                subprovider = IEX
+            case _:
+                subprovider = IEX
+
+        market_center = bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
+
+        condition = ""
+        if condition_length > 0:
+            condition = bytes[(start_index + 27 + symbol_length):(start_index + 27 + symbol_length + condition_length)].decode("ascii")
+
+        return Trade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
 
     def parse_message(self, bytes, start_index, backlog_len):
         message_type = bytes[start_index]
-        symbol_length = bytes[start_index + 1]
+        message_length = bytes[start_index + 1]
+        new_start_index = start_index + message_length
         item = None
-        new_start_index = None
         if message_type == 0:  # this is a trade
-            item = self.parse_trade(bytes, start_index, symbol_length)
-            new_start_index = start_index + 22 + symbol_length
+            item = self.parse_trade(bytes, start_index)
             if callable(self.client.on_trade):
                 try:
                     self.client.on_trade(item, backlog_len)
                 except Exception as e:
                     self.client.logger.error(repr(e))
         else:  # message_type is ask or bid (quote)
-            item = self.parse_quote(bytes, start_index, symbol_length)
-            new_start_index = start_index + 18 + symbol_length
+            item = self.parse_quote(bytes, start_index)
             if callable(self.client.on_quote):
                 try:
                     self.client.on_quote(item, backlog_len)
@@ -402,18 +472,3 @@ class QuoteHandler(threading.Thread):
             start_index = 1
             for i in range(0, items_in_message):
                 start_index = self.parse_message(message, start_index, backlog_len)
-
-
-class Heartbeat(threading.Thread):
-    def __init__(self, client):
-        threading.Thread.__init__(self, args=(), kwargs=None)
-        self.daemon = True
-        self.client = client
-
-    def run(self):
-        self.client.logger.debug("Heartbeat ready")
-        while True:
-            time.sleep(HEARTBEAT_TIME)
-            if self.client.ready and self.client.ws:
-                self.client.ws.send("")
-                self.client.logger.debug("Heartbeat!")
