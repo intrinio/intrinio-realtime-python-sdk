@@ -24,6 +24,10 @@ IEX = "IEX"
 SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX]
 MAX_QUEUE_SIZE = 10000
 DEBUGGING = not (sys.gettrace() is None)
+HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
+HEADER_MESSAGE_FORMAT_VALUE = "v2"
+HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.0.0"
 
 
 class Quote:
@@ -199,7 +203,7 @@ class IntrinioRealtimeClient:
             time.sleep(1)
 
     def refresh_token(self):
-        headers = {'Client-Information': 'IntrinioPythonSDKv5.0.0'}
+        headers = {HEADER_CLIENT_INFORMATION_KEY: HEADER_CLIENT_INFORMATION_VALUE}
         if self.api_key:
             response = requests.get(self.auth_url(), headers=headers)
         else:
@@ -310,6 +314,7 @@ class QuoteReceiver(threading.Thread):
     def run(self):
         self.client.ws = websocket.WebSocketApp(
             self.client.websocket_url(),
+            header={HEADER_MESSAGE_FORMAT_KEY: HEADER_MESSAGE_FORMAT_VALUE, HEADER_CLIENT_INFORMATION_KEY: HEADER_CLIENT_INFORMATION_VALUE},
             on_open=self.on_open,
             on_close=self.on_close,
             on_message=self.on_message,
