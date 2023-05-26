@@ -7,7 +7,7 @@ SDK for working with Intrinio's realtime Multi-Exchange prices feed.  Intrinioâ€
 
 ## Requirements
 
-- Python 3.6
+- Python 3.10
 - You need https://pypi.org/project/websocket-client/, not https://pypi.org/project/websocket/.
 
 ## Docker
