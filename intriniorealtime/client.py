@@ -188,7 +188,7 @@ class IntrinioRealtimeClient:
             time.sleep(1)
 
     def refresh_token(self):
-        headers = {'Client-Information': 'IntrinioPythonSDKv4.4.0'}
+        headers = {'Client-Information': 'IntrinioPythonSDKv5.0.0'}
         if self.api_key:
             response = requests.get(self.auth_url(), headers=headers)
         else:
