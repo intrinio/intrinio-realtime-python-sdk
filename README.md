@@ -72,7 +72,7 @@ class Summarize(threading.Thread):
 
 options = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'REALTIME' # or 'DELAYED_SIP' or 'NASDAQ_BASIC'
+    'provider': 'REALTIME' # REALTIME or DELAYED_SIP or NASDAQ_BASIC
 }
 
 client = IntrinioRealtimeClient(options, on_trade, on_quote)
@@ -101,7 +101,10 @@ There are thousands of securities, each with their own feed of activity.  We hig
   'type': 'ask',
   'price': '102.3',
   'size': 100,
-  'timestamp': 1636395583000000000 }
+  'timestamp': 1636395583000000000,
+  'subprovider': 'UTP',
+  'market_center': '',
+  'condition': '' }
 ```
 
 *   **symbol** - the ticker of the security
@@ -111,6 +114,16 @@ There are thousands of securities, each with their own feed of activity.  We hig
 *   **price** - the price in USD
 *   **size** - the size of the `last` trade, or total volume of orders at the top-of-book `bid` or `ask` price
 *   **timestamp** - a Unix timestamp (nanoseconds since unix epoch)
+*   **subprovider** - Denotes the detailed source within grouped sources.
+  *    **`NO_SUBPROVIDER`** - No subtype specified.
+  *    **`CTA_A`** - CTA_A in the DELAYED_SIP provider.
+  *    **`CTA_B`** - CTA_B in the DELAYED_SIP provider.
+  *    **`UTP`** - UTP in the DELAYED_SIP provider.
+  *    **`OTC`** - OTC in the DELAYED_SIP provider.
+  *    **`NASDAQ_BASIC`** - NASDAQ Basic in the NASDAQ_BASIC provider.
+  *    **`IEX`** - From the IEX exchange in the REALTIME provider.
+* **market_center** - Provides the market center
+* **condition** - Provides the condition
 
 
 ### Trade Message
@@ -120,7 +133,10 @@ There are thousands of securities, each with their own feed of activity.  We hig
   'total_volume': '106812',
   'price': '102.3',
   'size': 100,
-  'timestamp': 1636395583000000000 }
+  'timestamp': 1636395583000000000,
+  'subprovider': 'IEX',
+  'market_center': '',
+  'condition': '' }
 ```
 
 *   **symbol** - the ticker of the security
@@ -128,6 +144,16 @@ There are thousands of securities, each with their own feed of activity.  We hig
 *   **price** - the price in USD
 *   **size** - the size of the `last` trade, or total volume of orders at the top-of-book `bid` or `ask` price
 *   **timestamp** - a Unix timestamp (nanoseconds since unix epoch)
+*   **subprovider** - Denotes the detailed source within grouped sources.
+  *    **`NO_SUBPROVIDER`** - No subtype specified.
+  *    **`CTA_A`** - CTA_A in the DELAYED_SIP provider.
+  *    **`CTA_B`** - CTA_B in the DELAYED_SIP provider.
+  *    **`UTP`** - UTP in the DELAYED_SIP provider.
+  *    **`OTC`** - OTC in the DELAYED_SIP provider.
+  *    **`NASDAQ_BASIC`** - NASDAQ Basic in the NASDAQ_BASIC provider.
+  *    **`IEX`** - From the IEX exchange in the REALTIME provider.
+* **market_center** - Provides the market center
+* **condition** - Provides the condition
 
 
 ## API Keys
@@ -152,7 +178,7 @@ def on_trade(trade, backlog):
     
 options = {
     'api_key': '',
-    'provider': 'REALTIME',
+    'provider': 'REALTIME', # REALTIME or DELAYED_SIP or NASDAQ_BASIC
     'on_quote': on_quote,
     'on_trade': on_trade
 }
