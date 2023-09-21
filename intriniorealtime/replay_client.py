@@ -13,6 +13,7 @@ import urllib.request
 
 DEBUGGING = not (sys.gettrace() is None)
 
+
 class IntrinioRealtimeConstants:
     REALTIME = "REALTIME"
     DELAYED_SIP = "DELAYED_SIP"
@@ -30,6 +31,7 @@ class IntrinioRealtimeConstants:
     SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX]
     MAX_QUEUE_SIZE = 1000000
     EVENT_BUFFER_SIZE = 100
+
 
 class Quote:
     def __init__(self, symbol, type, price, size, timestamp, subprovider, market_center, condition):
@@ -61,6 +63,12 @@ class Trade:
         return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", subprovider: " + str(self.subprovider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
 
 
+class Tick:
+    def __init__(self, time_received, data):
+        self.time_received = time
+        self.data = data
+
+
 class IntrinioReplayClient:
     def __init__(self, options, on_trade, on_quote):
         if options is None:
@@ -73,6 +81,10 @@ class IntrinioReplayClient:
         self.replay_date = options.get('replay_date')
         self.with_simulated_delay = options.get('with_simulated_delay')
         self.delete_file_when_done = options.get('delete_file_when_done')
+        self.worker_thread_count = options.get('worker_thread_count')
+
+        if (self.worker_thread_count is None) or (type(self.worker_thread_count) is not int) or self.worker_thread_count < 1:
+            self.worker_thread_count = 4
 
         if 'channels' in options:
             self.channels = set(options['channels'])
@@ -128,7 +140,7 @@ class IntrinioReplayClient:
             raise ValueError(f"Parameter 'delete_file_when_done' is invalid, use a bool.")
 
         self.file_parsing_thread = None
-        self.quote_handling_thread = None
+        self.quote_handling_threads = []
         self.joined_channels = set()
         self.last_queue_warning_time = 0
 
@@ -142,95 +154,6 @@ class IntrinioReplayClient:
 
         return True
 
-    @staticmethod
-    def map_subprovider_to_api_value(sub_provider):
-        match sub_provider:
-            case IntrinioRealtimeConstants.IEX:
-                return "iex"
-            case IntrinioRealtimeConstants.UTP:
-                return "utp_delayed"
-            case IntrinioRealtimeConstants.CTA_A:
-                return "cta_a_delayed"
-            case IntrinioRealtimeConstants.CTA_B:
-                return "cta_b_delayed"
-            case IntrinioRealtimeConstants.OTC:
-                return "otc_delayed"
-            case IntrinioRealtimeConstants.NASDAQ_BASIC:
-                return "nasdaq_basic"
-            case _:
-                return "iex"
-
-    @staticmethod
-    def map_provider_to_subproviders(provider):
-        match provider:
-            case IntrinioRealtimeConstants.NO_PROVIDER:
-                return []
-            case IntrinioRealtimeConstants.MANUAL:
-                return []
-            case IntrinioRealtimeConstants.REALTIME:
-                return [IntrinioRealtimeConstants.IEX]
-            case IntrinioRealtimeConstants.DELAYED_SIP:
-                return [IntrinioRealtimeConstants.UTP, IntrinioRealtimeConstants.CTA_A, IntrinioRealtimeConstants.CTA_B, IntrinioRealtimeConstants.OTC]
-            case IntrinioRealtimeConstants.NASDAQ_BASIC:
-                return [IntrinioRealtimeConstants.NASDAQ_BASIC]
-            case _:
-                return []
-
-    def get_file(self, subprovider):
-        intrinio.ApiClient().configuration.api_key['api_key'] = self.api_key
-        intrinio.ApiClient().allow_retries(True)
-        security_api = intrinio.SecurityApi()
-        api_response = security_api.get_security_replay_file(self.map_subprovider_to_api_value(subprovider), self.replay_date)
-        decoded_url = api_response.url.replace("\u0026", "&")
-        temp_dir = tempfile.gettempdir()
-        file_path = os.path.join(temp_dir, api_response.name)
-        self.logger.info("Downloading file to " + file_path)
-        urllib.request.urlretrieve(decoded_url, file_path)
-        return file_path
-
-    def get_all_files(self):
-        subproviders = self.map_provider_to_subproviders(self.provider)
-        file_names = []
-        for subprovider in subproviders:
-            try:
-                file_names.append(self.get_file(subprovider))
-            except Exception as e:
-                self.logger.info("Could not retrieve file for " + subprovider)
-        return file_names
-
-    @staticmethod
-    def read_file_chunk(file_obj, chunk_size):
-        data = file_obj.read(chunk_size)
-        if not data:
-            return None
-        return data
-
-    @staticmethod
-    def copy_into(source, destination, destination_start_index):
-        for i in range(0, len(source)):
-            destination[destination_start_index + i] = source[i]
-
-    def replay_tick_file_without_delay(self, file_path):
-        if os.path.exists(file_path):
-            file = open(file_path)
-            read_result = self.read_file_chunk(file, 1)
-            while read_result is not None:
-                event_bytes = [0] * IntrinioRealtimeConstants.EVENT_BUFFER_SIZE
-                event_bytes[0] = 1  # This is the number of messages in the group
-                event_bytes[1] = read_result  # This is message type
-                event_bytes[2] = self.read_file_chunk(file, 1)  # This is message length, including this and the previous byte.
-                self.copy_into(self.read_file_chunk(file, event_bytes[2]-2), event_bytes, 3)  # read the rest of the message
-                time_received_bytes = self.read_file_chunk(file, 8)
-            file.close()
-        else:
-            yield None
-
-    # def stream_file_example(self):
-    #     with open("x.txt") as f:
-    #         for line in f:
-    #             do something with data
-    #     https://stackoverflow.com/questions/8009882/how-to-read-a-large-file-line-by-line
-
     def connect(self):
         try:
             self.logger.info("Connecting...")
@@ -238,15 +161,19 @@ class IntrinioReplayClient:
             self.refresh_channels()
             self.file_parsing_thread = FileParsingThread(self)
             self.file_parsing_thread.start()
-            self.quote_handling_thread = QuoteHandlingThread(self)
-            self.quote_handling_thread.start()
+            self.quote_handling_threads = [QuoteHandlingThread(self)] * self.worker_thread_count
+            for thread in self.quote_handling_threads:
+                thread.start()
         except Exception as e:
             self.logger.error(f"Cannot connect: {repr(e)}")
 
     def disconnect(self):
         self.joined_channels = set()
-        self.file_parsing_thread.stop()
-        self.quote_handling_thread.stop()
+        if self.file_parsing_thread:
+            self.file_parsing_thread.stop()
+        for thread in self.quote_handling_threads:
+            thread.stop()
+        self.quote_handling_threads = []
 
     def on_queue_full(self):
         if time.time() - self.last_queue_warning_time > 1:
@@ -298,6 +225,18 @@ class FileParsingThread(threading.Thread):
     def run(self):
         self.client.logger.debug("FileParsingThread ready")
         file_paths = self.client.get_all_files()
+        ticks_group = [None] * len(file_paths)
+        for i in range(len(file_paths)):
+            ticks_group[i] = self.replay_tick_file_without_delay(file_paths[i])
+
+        aggregated_ticks = []
+        if self.client.with_simulated_delay:
+            aggregated_ticks = self.replay_file_group_with_delay(ticks_group)
+        else:
+            aggregated_ticks = self.replay_file_group_without_delay(ticks_group)
+
+        for tick in aggregated_ticks:
+            self.client.events.put_nowait(tick.data)
 
         if self.client.delete_file_when_done:
             for file_path in file_paths:
@@ -305,6 +244,153 @@ class FileParsingThread(threading.Thread):
                     self.client.logger.info("Deleting file " + file_path)
                     os.remove(file_path)
         self.client.logger.debug("FileParsingThread exiting")
+
+    # def stream_file_example(self):
+    #     with open("x.txt") as f:
+    #         for line in f:
+    #             do something with data
+    #     https://stackoverflow.com/questions/8009882/how-to-read-a-large-file-line-by-line
+
+    @staticmethod
+    def map_subprovider_to_api_value(sub_provider):
+        match sub_provider:
+            case IntrinioRealtimeConstants.IEX:
+                return "iex"
+            case IntrinioRealtimeConstants.UTP:
+                return "utp_delayed"
+            case IntrinioRealtimeConstants.CTA_A:
+                return "cta_a_delayed"
+            case IntrinioRealtimeConstants.CTA_B:
+                return "cta_b_delayed"
+            case IntrinioRealtimeConstants.OTC:
+                return "otc_delayed"
+            case IntrinioRealtimeConstants.NASDAQ_BASIC:
+                return "nasdaq_basic"
+            case _:
+                return "iex"
+
+    @staticmethod
+    def map_provider_to_subproviders(provider):
+        match provider:
+            case IntrinioRealtimeConstants.NO_PROVIDER:
+                return []
+            case IntrinioRealtimeConstants.MANUAL:
+                return []
+            case IntrinioRealtimeConstants.REALTIME:
+                return [IntrinioRealtimeConstants.IEX]
+            case IntrinioRealtimeConstants.DELAYED_SIP:
+                return [IntrinioRealtimeConstants.UTP, IntrinioRealtimeConstants.CTA_A, IntrinioRealtimeConstants.CTA_B,
+                        IntrinioRealtimeConstants.OTC]
+            case IntrinioRealtimeConstants.NASDAQ_BASIC:
+                return [IntrinioRealtimeConstants.NASDAQ_BASIC]
+            case _:
+                return []
+
+    def get_file(self, subprovider):
+        intrinio.ApiClient().configuration.api_key['api_key'] = self.client.api_key
+        intrinio.ApiClient().allow_retries(True)
+        security_api = intrinio.SecurityApi()
+        api_response = security_api.get_security_replay_file(self.map_subprovider_to_api_value(subprovider), self.client.replay_date)
+        decoded_url = api_response.url.replace("\u0026", "&")
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, api_response.name)
+        self.client.logger.info("Downloading file to " + file_path)
+        urllib.request.urlretrieve(decoded_url, file_path)
+        return file_path
+
+    def get_all_files(self):
+        subproviders = self.map_provider_to_subproviders(self.client.provider)
+        file_names = []
+        for subprovider in subproviders:
+            try:
+                file_names.append(self.get_file(subprovider))
+            except Exception as e:
+                self.client.logger.info("Could not retrieve file for " + subprovider)
+        return file_names
+
+    @staticmethod
+    def read_file_chunk(file_obj, chunk_size):
+        data = file_obj.read(chunk_size)
+        if not data:
+            return None
+        return data
+
+    @staticmethod
+    def copy_into(source, destination, destination_start_index):
+        for i in range(0, len(source)):
+            destination[destination_start_index + i] = source[i]
+
+    def replay_tick_file_without_delay(self, file_path):
+        if os.path.exists(file_path):
+            file = open(file_path)
+            read_result = self.read_file_chunk(file, 1)
+            while read_result is not None:
+                event_bytes = [0] * IntrinioRealtimeConstants.EVENT_BUFFER_SIZE
+                event_bytes[0] = 1  # This is the number of messages in the group
+                event_bytes[1] = read_result  # This is message type
+                event_bytes[2] = self.read_file_chunk(file, 1)  # This is message length, including this and the previous byte.
+                self.copy_into(self.read_file_chunk(file, event_bytes[2] - 2), event_bytes, 3)  # read the rest of the message
+                time_received_bytes = self.read_file_chunk(file, 8)
+                time_received = struct.unpack_from('<Q', time_received_bytes, 0)[0]
+                yield Tick(time_received, event_bytes)
+            file.close()
+        else:
+            yield None
+
+    def replay_file_group_with_delay(self, all_ticks):
+        start = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        offset = 0
+        for tick in self.replay_file_group_without_delay(all_ticks):
+            if offset == 0:
+                offset = start - tick.time_received.timestamp()
+
+            # sleep until the tick happens
+            if (tick.tick.time_received.timestamp() + offset) <= datetime.datetime.now(datetime.timezone.utc).timestamp():
+                time.sleep(datetime.datetime.now(datetime.timezone.utc).timestamp() - (tick.tick.time_received.timestamp() + offset))
+            yield tick
+
+    @staticmethod
+    def fill_next_ticks(enumerators, next_ticks):
+        for i in range(len(next_ticks)):
+            if next_ticks[i] is None:
+                try:
+                    next_ticks[i] = enumerators[i].next()
+                except StopIteration:
+                    pass
+
+    @staticmethod
+    def pull_next_tick(next_ticks):
+        pull_index = 0
+        t = 253393563328  # max value, year 9999
+        for i in range(len(next_ticks)):
+            if next_ticks[i] is not None and next_ticks[i].time_received < t:
+                pull_index = i
+                t = next_ticks[i].time_received
+
+        pulled_tick = next_ticks[pull_index]
+        next_ticks[pull_index] = None
+        return pulled_tick
+
+    @staticmethod
+    def has_any_value(next_ticks):
+        has_value = False
+        for i in range(len(next_ticks)):
+            if next_ticks[i] is not None:
+                has_value = True
+        return has_value
+
+    def replay_file_group_without_delay(self, tick_group):
+        next_ticks = [None] * len(tick_group)
+        enumerators = [None] * len(tick_group)
+        for i in range(len(tick_group)):
+            enumerators[i] = tick_group[i].GetEnumerator()
+
+        self.fill_next_ticks(enumerators, next_ticks)
+        while self.has_any_value(next_ticks):
+            next_tick = self.pull_next_tick(next_ticks)
+            if next_tick is not None:
+                yield next_tick
+            self.fill_next_ticks(enumerators, next_ticks)
 
     def on_message(self, ws, message):
         try:
