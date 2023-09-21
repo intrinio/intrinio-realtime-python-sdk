@@ -2,34 +2,34 @@ import time
 import datetime
 import requests
 import threading
-import websocket
 import logging
 import queue
 import struct
 import sys
-import wsaccel
+import intrinio_sdk as intrinio
+import tempfile
+import os
+import urllib.request
 
-SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
-REALTIME = "REALTIME"
-DELAYED_SIP = "DELAYED_SIP"
-NASDAQ_BASIC = "NASDAQ_BASIC"
-MANUAL = "MANUAL"
-PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC]
-NO_SUBPROVIDER = "NO_SUBPROVIDER"
-CTA_A = "CTA_A"
-CTA_B = "CTA_B"
-UTP = "UTP"
-OTC = "OTC"
-NASDAQ_BASIC = "NASDAQ_BASIC"
-IEX = "IEX"
-SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX]
-MAX_QUEUE_SIZE = 10000
 DEBUGGING = not (sys.gettrace() is None)
-HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
-HEADER_MESSAGE_FORMAT_VALUE = "v2"
-HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
-HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.0.0"
 
+class IntrinioRealtimeConstants:
+    SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
+    REALTIME = "REALTIME"
+    DELAYED_SIP = "DELAYED_SIP"
+    NASDAQ_BASIC = "NASDAQ_BASIC"
+    MANUAL = "MANUAL"
+    PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC]
+    NO_PROVIDER = "NO_PROVIDER"
+    NO_SUBPROVIDER = "NO_SUBPROVIDER"
+    CTA_A = "CTA_A"
+    CTA_B = "CTA_B"
+    UTP = "UTP"
+    OTC = "OTC"
+    NASDAQ_BASIC = "NASDAQ_BASIC"
+    IEX = "IEX"
+    SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX]
+    MAX_QUEUE_SIZE = 1000000
 
 class Quote:
     def __init__(self, symbol, type, price, size, timestamp, subprovider, market_center, condition):
@@ -68,10 +68,7 @@ class IntrinioReplayClient:
 
         self.options = options
         self.api_key = options.get('api_key')
-        self.username = options.get('username')
-        self.password = options.get('password')
         self.provider = options.get('provider')
-        self.ipaddress = options.get('ipaddress')
         self.tradesonly = options.get('tradesonly')
         self.replay_date = options.get('replay_date')
         self.with_simulated_delay = options.get('with_simulated_delay')
@@ -89,7 +86,7 @@ class IntrinioReplayClient:
             log_handler = logging.StreamHandler()
             log_handler.setFormatter(log_formatter)
             self.logger = logging.getLogger('intrinio_realtime')
-            if 'debug' in options and options['debug'] == True:
+            if 'debug' in options and options['debug'] is True:
                 self.logger.setLevel(logging.DEBUG)
             else:
                 self.logger.setLevel(logging.INFO)
@@ -98,20 +95,13 @@ class IntrinioReplayClient:
         if 'max_queue_size' in options:
             self.quotes = queue.Queue(maxsize=options['max_queue_size'])
         else:
-            self.quotes = queue.Queue(maxsize=MAX_QUEUE_SIZE)
+            self.quotes = queue.Queue(maxsize=IntrinioRealtimeConstants.MAX_QUEUE_SIZE)
 
         if self.api_key:
             if not self.valid_api_key(self.api_key):
                 raise ValueError("API Key was formatted invalidly")
         else:
-            if not self.username and not self.password:
-                raise ValueError("API key or username and password are required")
-
-            if not self.username:
-                raise ValueError("Parameter 'username' must be specified")
-
-            if not self.password:
-                raise ValueError("Parameter 'password' must be specified")
+            raise ValueError("API key is required")
 
         if not callable(on_quote):
             self.on_quote = None
@@ -125,8 +115,8 @@ class IntrinioReplayClient:
         else:
             self.on_trade = on_trade
 
-        if self.provider not in PROVIDERS:
-            raise ValueError(f"Parameter 'provider' is invalid, use one of {PROVIDERS}")
+        if self.provider not in IntrinioRealtimeConstants.PROVIDERS:
+            raise ValueError(f"Parameter 'provider' is invalid, use one of {IntrinioRealtimeConstants.PROVIDERS}")
 
         if ('replay_date' not in options) or (type(self.replay_date) is not datetime.date):
             raise ValueError(f"Parameter 'replay_date' is invalid, use a datetime.date.")
@@ -144,40 +134,67 @@ class IntrinioReplayClient:
         self.last_queue_warning_time = 0
         self.quote_handler.start()
 
-    def auth_url(self):
-        auth_url = ""
+    @staticmethod
+    def map_subprovider_to_api_value(sub_provider):
+        match sub_provider:
+            case IntrinioRealtimeConstants.IEX:
+                return "iex"
+            case IntrinioRealtimeConstants.UTP:
+                return "utp_delayed"
+            case IntrinioRealtimeConstants.CTA_A:
+                return "cta_a_delayed"
+            case IntrinioRealtimeConstants.CTA_B:
+                return "cta_b_delayed"
+            case IntrinioRealtimeConstants.OTC:
+                return "otc_delayed"
+            case IntrinioRealtimeConstants.NASDAQ_BASIC:
+                return "nasdaq_basic"
+            case _:
+                return "iex"
 
-        if self.provider == REALTIME:
-            auth_url = "https://realtime-mx.intrinio.com/auth"
-        elif self.provider == DELAYED_SIP:
-            auth_url = "https://realtime-delayed-sip.intrinio.com/auth"
-        elif self.provider == NASDAQ_BASIC:
-            auth_url = "https://realtime-nasdaq-basic.intrinio.com/auth"
-        elif self.provider == MANUAL:
-            auth_url = "http://" + self.ipaddress + "/auth"
+    @staticmethod
+    def map_provider_to_subproviders(provider):
+        match provider:
+            case IntrinioRealtimeConstants.NO_PROVIDER:
+                return []
+            case IntrinioRealtimeConstants.MANUAL:
+                return []
+            case IntrinioRealtimeConstants.REALTIME:
+                return [IntrinioRealtimeConstants.IEX]
+            case IntrinioRealtimeConstants.DELAYED_SIP:
+                return [IntrinioRealtimeConstants.UTP, IntrinioRealtimeConstants.CTA_A, IntrinioRealtimeConstants.CTA_B, IntrinioRealtimeConstants.OTC]
+            case IntrinioRealtimeConstants.NASDAQ_BASIC:
+                return [IntrinioRealtimeConstants.NASDAQ_BASIC]
+            case _:
+                return []
 
-        if self.api_key:
-            auth_url = self.api_auth_url(auth_url)
+    def get_file(self, subprovider):
+        intrinio.ApiClient().configuration.api_key['api_key'] = self.api_key
+        intrinio.ApiClient().allow_retries(True)
+        security_api = intrinio.SecurityApi()
+        api_response = security_api.get_security_replay_file(self.map_subprovider_to_api_value(subprovider), self.replay_date)
+        decoded_url = api_response.url.replace("\u0026", "&")
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, api_response.name)
+        self.logger.info("Downloading file to " + file_path)
+        urllib.request.urlretrieve(decoded_url, file_path)
+        return file_path
 
-        return auth_url
+    def get_all_files(self):
+        subproviders = self.map_provider_to_subproviders(self.provider)
+        file_names = []
+        for subprovider in subproviders:
+            try:
+                file_names.append(self.get_file(subprovider))
+            except Exception as e:
+                self.logger.info("Could not retrieve file for " + subprovider)
+        return file_names
 
-    def api_auth_url(self, auth_url):
-        if "?" in auth_url:
-            auth_url = auth_url + "&"
-        else:
-            auth_url = auth_url + "?"
-
-        return auth_url + "api_key=" + self.api_key
-
-    def websocket_url(self):
-        if self.provider == REALTIME:
-            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
-        elif self.provider == DELAYED_SIP:
-            return "wss://realtime-delayed-sip.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
-        elif self.provider == NASDAQ_BASIC:
-            return "wss://realtime-nasdaq-basic.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
-        elif self.provider == MANUAL:
-            return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token
+    # def stream_file_example(self):
+    #     with open("x.txt") as f:
+    #         for line in f:
+    #             do something with data
+    #     https://stackoverflow.com/questions/8009882/how-to-read-a-large-file-line-by-line
 
     def connect(self):
         connected = False
@@ -187,44 +204,17 @@ class IntrinioReplayClient:
                 self.ready = False
                 self.joined_channels = set()
 
-                if self.ws:
-                    self.ws.close()
-                    time.sleep(3)
-
-                self.refresh_token()
-                self.refresh_websocket()
+                self.quote_receiver = QuoteReceiver(self)
+                self.quote_receiver.start()
                 connected = True
+                self.ready = True
+                self.refresh_channels()
             except Exception as e:
                 self.logger.error(f"Cannot connect: {repr(e)}")
 
     def disconnect(self):
         self.ready = False
         self.joined_channels = set()
-
-        if self.ws:
-            self.ws.close()
-            time.sleep(1)
-
-    def refresh_token(self):
-        headers = {HEADER_CLIENT_INFORMATION_KEY: HEADER_CLIENT_INFORMATION_VALUE}
-        if self.api_key:
-            response = requests.get(self.auth_url(), headers=headers)
-        else:
-            response = requests.get(self.auth_url(), auth=(self.username, self.password), headers=headers)
-
-        if response.status_code != 200:
-            raise RuntimeError("Auth failed")
-
-        self.token = response.text
-        self.logger.info("Authentication successful!")
-
-    def refresh_websocket(self):
-        self.quote_receiver = QuoteReceiver(self)
-        self.quote_receiver.start()
-
-    def on_connect(self):
-        self.ready = True
-        self.refresh_channels()
 
     def on_queue_full(self):
         if time.time() - self.last_queue_warning_time > 1:
@@ -257,44 +247,16 @@ class IntrinioReplayClient:
         new_channels = self.channels - self.joined_channels
         self.logger.debug(f"New channels: {new_channels}")
         for channel in new_channels:
-            msg = self.join_binary_message(channel)
-            self.ws.send(msg, websocket.ABNF.OPCODE_BINARY)
             self.logger.info(f"Joined channel {channel}")
 
         # Leave old channels
         old_channels = self.joined_channels - self.channels
         self.logger.debug(f"Old channels: {old_channels}")
         for channel in old_channels:
-            msg = self.leave_binary_message(channel)
-            self.ws.send(msg, websocket.ABNF.OPCODE_BINARY)
             self.logger.info(f"Left channel {channel}")
 
         self.joined_channels = self.channels.copy()
         self.logger.debug(f"Current channels: {self.joined_channels}")
-
-    def join_binary_message(self, channel):
-        if channel == "lobby":
-            message = bytearray([74, 1 if self.tradesonly else 0])
-            channel_bytes = bytes("$FIREHOSE", 'ascii')
-            message.extend(channel_bytes)
-            return message
-        else:
-            message = bytearray([74, 1 if self.tradesonly else 0])
-            channel_bytes = bytes(channel, 'ascii')
-            message.extend(channel_bytes)
-            return message
-
-    def leave_binary_message(self, channel):
-        if channel == "lobby":
-            message = bytearray([76])
-            channel_bytes = bytes("$FIREHOSE", 'ascii')
-            message.extend(channel_bytes)
-            return message
-        else:
-            message = bytearray([76])
-            channel_bytes = bytes(channel, 'ascii')
-            message.extend(channel_bytes)
-            return message
 
     def valid_api_key(self, api_key):
         if not isinstance(api_key, str):
@@ -314,42 +276,14 @@ class QuoteReceiver(threading.Thread):
         self.enabled = True
 
     def run(self):
-        self.client.ws = websocket.WebSocketApp(
-            self.client.websocket_url(),
-            header={HEADER_MESSAGE_FORMAT_KEY: HEADER_MESSAGE_FORMAT_VALUE, HEADER_CLIENT_INFORMATION_KEY: HEADER_CLIENT_INFORMATION_VALUE},
-            on_open=self.on_open,
-            on_close=self.on_close,
-            on_message=self.on_message,
-            on_error=self.on_error
-        )
-
         self.client.logger.debug("QuoteReceiver ready")
-        self.client.ws.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
+        #self.client.ws.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
         self.client.logger.debug("QuoteReceiver exiting")
-
-    def on_open(self, ws):
-        self.client.logger.info("Websocket opened!")
-        self.client.on_connect()
-
-    def on_close(self, ws, code, message):
-        self.client.logger.info("Websocket closed!")
-
-    def on_error(self, ws, error, *args):
-        try:
-            self.client.logger.error(f"Websocket ERROR: {error}")
-            self.client.connect()
-        except Exception as e:
-            self.client.logger.error(f"Error in on_error handler: {repr(e)}; {repr(error)}")
-            raise e
 
     def on_message(self, ws, message):
         try:
             if DEBUGGING:  # This is here for performance reasons so we don't use slow reflection on every message.
-                if isinstance(message, str):
-                    self.client.logger.debug(f"Received message (hex): {message.encode('utf-8').hex()}")
-                else:
-                    if isinstance(message, bytes):
-                        self.client.logger.debug(f"Received message (hex): {message.hex()}")
+                self.client.logger.debug(f"Received message (hex): {message.hex()}")
             self.client.quotes.put_nowait(message)
         except queue.Full:
             self.client.on_queue_full()
@@ -383,21 +317,21 @@ class QuoteHandler(threading.Thread):
         subprovider = None
         match bytes[3 + symbol_length]:
             case 0:
-                subprovider = NO_SUBPROVIDER
+                subprovider = IntrinioRealtimeConstants.NO_SUBPROVIDER
             case 1:
-                subprovider = CTA_A
+                subprovider = IntrinioRealtimeConstants.CTA_A
             case 2:
-                subprovider = CTA_B
+                subprovider = IntrinioRealtimeConstants.CTA_B
             case 3:
-                subprovider = UTP
+                subprovider = IntrinioRealtimeConstants.UTP
             case 4:
-                subprovider = OTC
+                subprovider = IntrinioRealtimeConstants.OTC
             case 5:
-                subprovider = NASDAQ_BASIC
+                subprovider = IntrinioRealtimeConstants.NASDAQ_BASIC
             case 6:
-                subprovider = IEX
+                subprovider = IntrinioRealtimeConstants.IEX
             case _:
-                subprovider = IEX
+                subprovider = IntrinioRealtimeConstants.IEX
 
         market_center = bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
 
@@ -420,21 +354,21 @@ class QuoteHandler(threading.Thread):
         subprovider = None
         match bytes[3 + symbol_length]:
             case 0:
-                subprovider = NO_SUBPROVIDER
+                subprovider = IntrinioRealtimeConstants.NO_SUBPROVIDER
             case 1:
-                subprovider = CTA_A
+                subprovider = IntrinioRealtimeConstants.CTA_A
             case 2:
-                subprovider = CTA_B
+                subprovider = IntrinioRealtimeConstants.CTA_B
             case 3:
-                subprovider = UTP
+                subprovider = IntrinioRealtimeConstants.UTP
             case 4:
-                subprovider = OTC
+                subprovider = IntrinioRealtimeConstants.OTC
             case 5:
-                subprovider = NASDAQ_BASIC
+                subprovider = IntrinioRealtimeConstants.NASDAQ_BASIC
             case 6:
-                subprovider = IEX
+                subprovider = IntrinioRealtimeConstants.IEX
             case _:
-                subprovider = IEX
+                subprovider = IntrinioRealtimeConstants.IEX
 
         market_center = bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
 
