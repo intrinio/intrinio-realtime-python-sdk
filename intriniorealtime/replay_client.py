@@ -65,7 +65,7 @@ class Trade:
 
 class Tick:
     def __init__(self, time_received, data):
-        self.time_received = time
+        self.time_received = time_received
         self.data = data
 
 
@@ -171,7 +171,7 @@ class IntrinioReplayClient:
     def disconnect(self):
         self.joined_channels = set()
         if self.file_parsing_thread:
-            self.file_parsing_thread.stop()
+            self.file_parsing_thread.join()
         for thread in self.quote_handling_threads:
             thread.join()
         self.quote_handling_threads = []
@@ -315,19 +315,20 @@ class FileParsingThread(threading.Thread):
         for i in range(0, len(source)):
             destination[destination_start_index + i] = source[i]
 
+
     def replay_tick_file_without_delay(self, file_path):
         if os.path.exists(file_path):
-            file = open(file_path)
+            file = open(file_path, "rb")
             read_result = self.read_file_chunk(file, 1)
             while read_result is not None:
                 event_bytes = [0] * IntrinioRealtimeConstants.EVENT_BUFFER_SIZE
                 event_bytes[0] = 1  # This is the number of messages in the group
-                event_bytes[1] = read_result  # This is message type
-                event_bytes[2] = self.read_file_chunk(file, 1)  # This is message length, including this and the previous byte.
+                event_bytes[1] = int.from_bytes(read_result, "big")  # This is message type
+                event_bytes[2] = int.from_bytes(self.read_file_chunk(file, 1), "big")  # This is message length, including this and the previous byte.
                 self.copy_into(self.read_file_chunk(file, event_bytes[2] - 2), event_bytes, 3)  # read the rest of the message
                 time_received_bytes = self.read_file_chunk(file, 8)
                 time_received = struct.unpack_from('<Q', time_received_bytes, 0)[0]
-                yield Tick(time_received, event_bytes)
+                yield Tick(time_received, bytearray(event_bytes))
             file.close()
         else:
             yield None
