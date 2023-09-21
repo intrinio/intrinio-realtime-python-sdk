@@ -315,7 +315,6 @@ class FileParsingThread(threading.Thread):
         for i in range(0, len(source)):
             destination[destination_start_index + i] = source[i]
 
-
     def replay_tick_file_without_delay(self, file_path):
         if os.path.exists(file_path):
             file = open(file_path, "rb")
@@ -329,6 +328,7 @@ class FileParsingThread(threading.Thread):
                 time_received_bytes = self.read_file_chunk(file, 8)
                 time_received = struct.unpack_from('<Q', time_received_bytes, 0)[0]
                 yield Tick(time_received, bytearray(event_bytes))
+                read_result = self.read_file_chunk(file, 1)
             file.close()
         else:
             yield None
@@ -357,7 +357,7 @@ class FileParsingThread(threading.Thread):
     @staticmethod
     def pull_next_tick(next_ticks):
         pull_index = 0
-        t = 253393563328  # max value, year 9999
+        t = 9223372036854775806  # max value
         for i in range(len(next_ticks)):
             if next_ticks[i] is not None and next_ticks[i].time_received < t:
                 pull_index = i
