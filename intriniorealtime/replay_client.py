@@ -14,7 +14,6 @@ import urllib.request
 DEBUGGING = not (sys.gettrace() is None)
 
 class IntrinioRealtimeConstants:
-    SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
     REALTIME = "REALTIME"
     DELAYED_SIP = "DELAYED_SIP"
     NASDAQ_BASIC = "NASDAQ_BASIC"
@@ -30,6 +29,7 @@ class IntrinioRealtimeConstants:
     IEX = "IEX"
     SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX]
     MAX_QUEUE_SIZE = 1000000
+    EVENT_BUFFER_SIZE = 100
 
 class Quote:
     def __init__(self, symbol, type, price, size, timestamp, subprovider, market_center, condition):
@@ -93,9 +93,9 @@ class IntrinioReplayClient:
             self.logger.addHandler(log_handler)
 
         if 'max_queue_size' in options:
-            self.quotes = queue.Queue(maxsize=options['max_queue_size'])
+            self.events = queue.Queue(maxsize=options['max_queue_size'])
         else:
-            self.quotes = queue.Queue(maxsize=IntrinioRealtimeConstants.MAX_QUEUE_SIZE)
+            self.events = queue.Queue(maxsize=IntrinioRealtimeConstants.MAX_QUEUE_SIZE)
 
         if self.api_key:
             if not self.valid_api_key(self.api_key):
@@ -127,12 +127,20 @@ class IntrinioReplayClient:
         if ('delete_file_when_done' not in options) or (type(self.delete_file_when_done) is not bool):
             raise ValueError(f"Parameter 'delete_file_when_done' is invalid, use a bool.")
 
-        self.ready = False
-        self.quote_receiver = None
-        self.quote_handler = QuoteHandler(self)
+        self.file_parsing_thread = None
+        self.quote_handling_thread = None
         self.joined_channels = set()
         self.last_queue_warning_time = 0
-        self.quote_handler.start()
+
+    @staticmethod
+    def valid_api_key(api_key):
+        if not isinstance(api_key, str):
+            return False
+
+        if api_key == "":
+            return False
+
+        return True
 
     @staticmethod
     def map_subprovider_to_api_value(sub_provider):
@@ -190,6 +198,33 @@ class IntrinioReplayClient:
                 self.logger.info("Could not retrieve file for " + subprovider)
         return file_names
 
+    @staticmethod
+    def read_file_chunk(file_obj, chunk_size):
+        data = file_obj.read(chunk_size)
+        if not data:
+            return None
+        return data
+
+    @staticmethod
+    def copy_into(source, destination, destination_start_index):
+        for i in range(0, len(source)):
+            destination[destination_start_index + i] = source[i]
+
+    def replay_tick_file_without_delay(self, file_path):
+        if os.path.exists(file_path):
+            file = open(file_path)
+            read_result = self.read_file_chunk(file, 1)
+            while read_result is not None:
+                event_bytes = [0] * IntrinioRealtimeConstants.EVENT_BUFFER_SIZE
+                event_bytes[0] = 1  # This is the number of messages in the group
+                event_bytes[1] = read_result  # This is message type
+                event_bytes[2] = self.read_file_chunk(file, 1)  # This is message length, including this and the previous byte.
+                self.copy_into(self.read_file_chunk(file, event_bytes[2]-2), event_bytes, 3)  # read the rest of the message
+                time_received_bytes = self.read_file_chunk(file, 8)
+            file.close()
+        else:
+            yield None
+
     # def stream_file_example(self):
     #     with open("x.txt") as f:
     #         for line in f:
@@ -197,28 +232,25 @@ class IntrinioReplayClient:
     #     https://stackoverflow.com/questions/8009882/how-to-read-a-large-file-line-by-line
 
     def connect(self):
-        connected = False
-        while not connected:
-            try:
-                self.logger.info("Connecting...")
-                self.ready = False
-                self.joined_channels = set()
-
-                self.quote_receiver = QuoteReceiver(self)
-                self.quote_receiver.start()
-                connected = True
-                self.ready = True
-                self.refresh_channels()
-            except Exception as e:
-                self.logger.error(f"Cannot connect: {repr(e)}")
+        try:
+            self.logger.info("Connecting...")
+            self.joined_channels = set()
+            self.refresh_channels()
+            self.file_parsing_thread = FileParsingThread(self)
+            self.file_parsing_thread.start()
+            self.quote_handling_thread = QuoteHandlingThread(self)
+            self.quote_handling_thread.start()
+        except Exception as e:
+            self.logger.error(f"Cannot connect: {repr(e)}")
 
     def disconnect(self):
-        self.ready = False
         self.joined_channels = set()
+        self.file_parsing_thread.stop()
+        self.quote_handling_thread.stop()
 
     def on_queue_full(self):
         if time.time() - self.last_queue_warning_time > 1:
-            self.logger.error("Quote queue is full! Dropped some new quotes")
+            self.logger.error("Quote queue is full! Dropped some new events")
             self.last_queue_warning_time = time.time()
 
     def join(self, channels):
@@ -240,9 +272,6 @@ class IntrinioReplayClient:
         self.refresh_channels()
 
     def refresh_channels(self):
-        if self.ready != True:
-            return
-
         # Join new channels
         new_channels = self.channels - self.joined_channels
         self.logger.debug(f"New channels: {new_channels}")
@@ -258,17 +287,8 @@ class IntrinioReplayClient:
         self.joined_channels = self.channels.copy()
         self.logger.debug(f"Current channels: {self.joined_channels}")
 
-    def valid_api_key(self, api_key):
-        if not isinstance(api_key, str):
-            return False
 
-        if api_key == "":
-            return False
-
-        return True
-
-
-class QuoteReceiver(threading.Thread):
+class FileParsingThread(threading.Thread):
     def __init__(self, client):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
@@ -276,15 +296,21 @@ class QuoteReceiver(threading.Thread):
         self.enabled = True
 
     def run(self):
-        self.client.logger.debug("QuoteReceiver ready")
-        #self.client.ws.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
-        self.client.logger.debug("QuoteReceiver exiting")
+        self.client.logger.debug("FileParsingThread ready")
+        file_paths = self.client.get_all_files()
+
+        if self.client.delete_file_when_done:
+            for file_path in file_paths:
+                if os.path.exists(file_path):
+                    self.client.logger.info("Deleting file " + file_path)
+                    os.remove(file_path)
+        self.client.logger.debug("FileParsingThread exiting")
 
     def on_message(self, ws, message):
         try:
             if DEBUGGING:  # This is here for performance reasons so we don't use slow reflection on every message.
                 self.client.logger.debug(f"Received message (hex): {message.hex()}")
-            self.client.quotes.put_nowait(message)
+            self.client.events.put_nowait(message)
         except queue.Full:
             self.client.on_queue_full()
         except Exception as e:
@@ -298,7 +324,7 @@ class QuoteReceiver(threading.Thread):
             raise e
 
 
-class QuoteHandler(threading.Thread):
+class QuoteHandlingThread(threading.Thread):
     def __init__(self, client):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
@@ -400,10 +426,10 @@ class QuoteHandler(threading.Thread):
         return new_start_index
 
     def run(self):
-        self.client.logger.debug("QuoteHandler ready")
+        self.client.logger.debug("QuoteHandlingThread ready")
         while True:
-            message = self.client.quotes.get()
-            backlog_len = self.client.quotes.qsize()
+            message = self.client.events.get()
+            backlog_len = self.client.events.qsize()
             items_in_message = message[0]
             start_index = 1
             for i in range(0, items_in_message):
