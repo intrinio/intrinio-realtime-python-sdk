@@ -161,9 +161,10 @@ class IntrinioReplayClient:
             self.refresh_channels()
             self.file_parsing_thread = FileParsingThread(self)
             self.file_parsing_thread.start()
-            self.quote_handling_threads = [QuoteHandlingThread(self)] * self.worker_thread_count
-            for thread in self.quote_handling_threads:
-                thread.start()
+            self.quote_handling_threads = [None] * self.worker_thread_count
+            for i in range(len(self.quote_handling_threads)):
+                self.quote_handling_threads[i] = QuoteHandlingThread(self)
+                self.quote_handling_threads[i].start()
         except Exception as e:
             self.logger.error(f"Cannot connect: {repr(e)}")
 
@@ -172,7 +173,7 @@ class IntrinioReplayClient:
         if self.file_parsing_thread:
             self.file_parsing_thread.stop()
         for thread in self.quote_handling_threads:
-            thread.stop()
+            thread.join()
         self.quote_handling_threads = []
 
     def on_queue_full(self):
@@ -224,7 +225,7 @@ class FileParsingThread(threading.Thread):
 
     def run(self):
         self.client.logger.debug("FileParsingThread ready")
-        file_paths = self.client.get_all_files()
+        file_paths = self.get_all_files()
         ticks_group = [None] * len(file_paths)
         for i in range(len(file_paths)):
             ticks_group[i] = self.replay_tick_file_without_delay(file_paths[i])
@@ -244,12 +245,6 @@ class FileParsingThread(threading.Thread):
                     self.client.logger.info("Deleting file " + file_path)
                     os.remove(file_path)
         self.client.logger.debug("FileParsingThread exiting")
-
-    # def stream_file_example(self):
-    #     with open("x.txt") as f:
-    #         for line in f:
-    #             do something with data
-    #     https://stackoverflow.com/questions/8009882/how-to-read-a-large-file-line-by-line
 
     @staticmethod
     def map_subprovider_to_api_value(sub_provider):
@@ -354,7 +349,7 @@ class FileParsingThread(threading.Thread):
         for i in range(len(next_ticks)):
             if next_ticks[i] is None:
                 try:
-                    next_ticks[i] = enumerators[i].next()
+                    next_ticks[i] = next(enumerators[i])
                 except StopIteration:
                     pass
 
@@ -383,7 +378,7 @@ class FileParsingThread(threading.Thread):
         next_ticks = [None] * len(tick_group)
         enumerators = [None] * len(tick_group)
         for i in range(len(tick_group)):
-            enumerators[i] = tick_group[i].GetEnumerator()
+            enumerators[i] = tick_group[i]
 
         self.fill_next_ticks(enumerators, next_ticks)
         while self.has_any_value(next_ticks):
