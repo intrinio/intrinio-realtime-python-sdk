@@ -4,6 +4,8 @@ import time
 import sys
 from threading import Timer,Thread,Event
 from intriniorealtime.client import IntrinioRealtimeClient
+from intriniorealtime.replay_client import IntrinioReplayClient
+import datetime
 
 trade_count = 0
 ask_count = 0
@@ -43,10 +45,14 @@ class Summarize(threading.Thread):
 options = {
     'api_key': 'API_KEY_HERE',
     'provider': 'REALTIME'  # 'REALTIME' or DELAYED_SIP or NASDAQ_BASIC
+    # ,'replay_date': datetime.date.today()  # needed for ReplayClient. The date to replay.
+    # ,'with_simulated_delay': False  # needed for ReplayClient. This plays back the events at the same rate they happened in market.
+    # ,'delete_file_when_done': True  # needed for ReplayClient
 }
 
 
 client = IntrinioRealtimeClient(options, on_trade, on_quote)
+# client = IntrinioReplayClient(options, on_trade, on_quote)
 stop_event = Event()
 
 

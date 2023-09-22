@@ -27,7 +27,7 @@ DEBUGGING = not (sys.gettrace() is None)
 HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
 HEADER_MESSAGE_FORMAT_VALUE = "v2"
 HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
-HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.0.0"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.1.0"
 
 
 class Quote:
@@ -368,18 +368,18 @@ class QuoteHandler(threading.Thread):
         self.daemon = True
         self.client = client
 
-    def parse_quote(self, bytes, start_index):
-        buffer = memoryview(bytes)
-        symbol_length = bytes[start_index + 2]
-        condition_length = bytes[start_index + 22 + symbol_length]
-        symbol = bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
-        quote_type = "ask" if bytes[start_index] == 1 else "bid"
+    def parse_quote(self, quote_bytes, start_index):
+        buffer = memoryview(quote_bytes)
+        symbol_length = quote_bytes[start_index + 2]
+        condition_length = quote_bytes[start_index + 22 + symbol_length]
+        symbol = quote_bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
+        quote_type = "ask" if quote_bytes[start_index] == 1 else "bid"
         price = struct.unpack_from('<f', buffer, start_index + 6 + symbol_length)[0]
         size = struct.unpack_from('<L', buffer, start_index + 10 + symbol_length)[0]
         timestamp = struct.unpack_from('<Q', buffer, start_index + 14 + symbol_length)[0]
 
         subprovider = None
-        match bytes[3 + symbol_length]:
+        match quote_bytes[3 + symbol_length + start_index]:
             case 0:
                 subprovider = NO_SUBPROVIDER
             case 1:
@@ -397,26 +397,26 @@ class QuoteHandler(threading.Thread):
             case _:
                 subprovider = IEX
 
-        market_center = bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
+        market_center = quote_bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
 
         condition = ""
         if condition_length > 0:
-            condition = bytes[(start_index + 23 + symbol_length):(start_index + 23 + symbol_length + condition_length)].decode("ascii")
+            condition = quote_bytes[(start_index + 23 + symbol_length):(start_index + 23 + symbol_length + condition_length)].decode("ascii")
 
         return Quote(symbol, quote_type, price, size, timestamp, subprovider, market_center, condition)
 
-    def parse_trade(self, bytes, start_index):
-        buffer = memoryview(bytes)
-        symbol_length = bytes[start_index + 2]
-        condition_length = bytes[start_index + 26 + symbol_length]
-        symbol = bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
+    def parse_trade(self, trade_bytes, start_index):
+        buffer = memoryview(trade_bytes)
+        symbol_length = trade_bytes[start_index + 2]
+        condition_length = trade_bytes[start_index + 26 + symbol_length]
+        symbol = trade_bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
         price = struct.unpack_from('<f', buffer, start_index + 6 + symbol_length)[0]
         size = struct.unpack_from('<L', buffer, start_index + 10 + symbol_length)[0]
         timestamp = struct.unpack_from('<Q', buffer, start_index + 14 + symbol_length)[0]
         total_volume = struct.unpack_from('<L', buffer, start_index + 22 + symbol_length)[0]
 
         subprovider = None
-        match bytes[3 + symbol_length]:
+        match trade_bytes[3 + symbol_length + start_index]:
             case 0:
                 subprovider = NO_SUBPROVIDER
             case 1:
@@ -434,11 +434,11 @@ class QuoteHandler(threading.Thread):
             case _:
                 subprovider = IEX
 
-        market_center = bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
+        market_center = trade_bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
 
         condition = ""
         if condition_length > 0:
-            condition = bytes[(start_index + 27 + symbol_length):(start_index + 27 + symbol_length + condition_length)].decode("ascii")
+            condition = trade_bytes[(start_index + 27 + symbol_length):(start_index + 27 + symbol_length + condition_length)].decode("ascii")
 
         return Trade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
 
