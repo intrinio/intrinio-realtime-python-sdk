@@ -334,15 +334,17 @@ class FileParsingThread(threading.Thread):
             yield None
 
     def replay_file_group_with_delay(self, all_ticks):
-        start = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        multiplier = 1000000000
+        start = datetime.datetime.now(datetime.timezone.utc).timestamp() * multiplier
         offset = 0
         for tick in self.replay_file_group_without_delay(all_ticks):
             if offset == 0:
-                offset = start - tick.time_received.timestamp()
+                offset = start - tick.time_received
 
             # sleep until the tick happens
-            if (tick.tick.time_received.timestamp() + offset) <= datetime.datetime.now(datetime.timezone.utc).timestamp():
-                time.sleep(datetime.datetime.now(datetime.timezone.utc).timestamp() - (tick.tick.time_received.timestamp() + offset))
+            if (tick.time_received + offset) <= datetime.datetime.now(datetime.timezone.utc).timestamp() * multiplier:
+                sleep_time = (datetime.datetime.now(datetime.timezone.utc).timestamp() * multiplier - (tick.time_received + offset)) / multiplier
+                time.sleep(sleep_time)
             yield tick
 
     @staticmethod
@@ -412,18 +414,19 @@ class QuoteHandlingThread(threading.Thread):
         self.daemon = True
         self.client = client
 
-    def parse_quote(self, bytes, start_index):
-        buffer = memoryview(bytes)
-        symbol_length = bytes[start_index + 2]
-        condition_length = bytes[start_index + 22 + symbol_length]
-        symbol = bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
-        quote_type = "ask" if bytes[start_index] == 1 else "bid"
+    @staticmethod
+    def parse_quote(quote_bytes, start_index):
+        buffer = memoryview(quote_bytes)
+        symbol_length = quote_bytes[start_index + 2]
+        condition_length = quote_bytes[start_index + 22 + symbol_length]
+        symbol = quote_bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
+        quote_type = "ask" if quote_bytes[start_index] == 1 else "bid"
         price = struct.unpack_from('<f', buffer, start_index + 6 + symbol_length)[0]
         size = struct.unpack_from('<L', buffer, start_index + 10 + symbol_length)[0]
         timestamp = struct.unpack_from('<Q', buffer, start_index + 14 + symbol_length)[0]
 
         subprovider = None
-        match bytes[3 + symbol_length]:
+        match quote_bytes[3 + symbol_length]:
             case 0:
                 subprovider = IntrinioRealtimeConstants.NO_SUBPROVIDER
             case 1:
@@ -441,26 +444,27 @@ class QuoteHandlingThread(threading.Thread):
             case _:
                 subprovider = IntrinioRealtimeConstants.IEX
 
-        market_center = bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
+        market_center = quote_bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
 
         condition = ""
         if condition_length > 0:
-            condition = bytes[(start_index + 23 + symbol_length):(start_index + 23 + symbol_length + condition_length)].decode("ascii")
+            condition = quote_bytes[(start_index + 23 + symbol_length):(start_index + 23 + symbol_length + condition_length)].decode("ascii")
 
         return Quote(symbol, quote_type, price, size, timestamp, subprovider, market_center, condition)
 
-    def parse_trade(self, bytes, start_index):
-        buffer = memoryview(bytes)
-        symbol_length = bytes[start_index + 2]
-        condition_length = bytes[start_index + 26 + symbol_length]
-        symbol = bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
+    @staticmethod
+    def parse_trade(trade_bytes, start_index):
+        buffer = memoryview(trade_bytes)
+        symbol_length = trade_bytes[start_index + 2]
+        condition_length = trade_bytes[start_index + 26 + symbol_length]
+        symbol = trade_bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
         price = struct.unpack_from('<f', buffer, start_index + 6 + symbol_length)[0]
         size = struct.unpack_from('<L', buffer, start_index + 10 + symbol_length)[0]
         timestamp = struct.unpack_from('<Q', buffer, start_index + 14 + symbol_length)[0]
         total_volume = struct.unpack_from('<L', buffer, start_index + 22 + symbol_length)[0]
 
         subprovider = None
-        match bytes[3 + symbol_length]:
+        match trade_bytes[3 + symbol_length]:
             case 0:
                 subprovider = IntrinioRealtimeConstants.NO_SUBPROVIDER
             case 1:
@@ -478,13 +482,16 @@ class QuoteHandlingThread(threading.Thread):
             case _:
                 subprovider = IntrinioRealtimeConstants.IEX
 
-        market_center = bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
+        market_center = trade_bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
 
         condition = ""
         if condition_length > 0:
-            condition = bytes[(start_index + 27 + symbol_length):(start_index + 27 + symbol_length + condition_length)].decode("ascii")
+            condition = trade_bytes[(start_index + 27 + symbol_length):(start_index + 27 + symbol_length + condition_length)].decode("ascii")
 
         return Trade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
+
+    def subscribed(self, ticker):
+        return 'lobby' in self.client.joined_channels or ticker in self.client.joined_channels
 
     def parse_message(self, bytes, start_index, backlog_len):
         message_type = bytes[start_index]
@@ -493,18 +500,19 @@ class QuoteHandlingThread(threading.Thread):
         item = None
         if message_type == 0:  # this is a trade
             item = self.parse_trade(bytes, start_index)
-            if callable(self.client.on_trade):
+            if callable(self.client.on_trade) and self.subscribed(item.symbol):
                 try:
                     self.client.on_trade(item, backlog_len)
                 except Exception as e:
                     self.client.logger.error(repr(e))
         else:  # message_type is ask or bid (quote)
-            item = self.parse_quote(bytes, start_index)
-            if callable(self.client.on_quote):
-                try:
-                    self.client.on_quote(item, backlog_len)
-                except Exception as e:
-                    self.client.logger.error(repr(e))
+            if not self.client.tradesonly:
+                item = self.parse_quote(bytes, start_index)
+                if callable(self.client.on_quote) and self.subscribed(item.symbol):
+                    try:
+                        self.client.on_quote(item, backlog_len)
+                    except Exception as e:
+                        self.client.logger.error(repr(e))
         return new_start_index
 
     def run(self):
