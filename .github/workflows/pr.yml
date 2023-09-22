@@ -1,0 +1,57 @@
+name: PR Merge
+
+on:
+  pull_request:
+    types: [ closed ]
+
+jobs:
+  notify:
+    if: github.event.pull_request.merged == true
+    
+    runs-on: ubuntu-latest
+    steps:
+    - name: Git checkout
+      uses: actions/checkout@v2
+      
+    - name: Prepare Slack Message
+      id: slack-body-formatter
+      run: |
+        SLACK_MESSAGE="${{github.event.pull_request.body}}"
+
+        echo "::set-output name=slack-message::${SLACK_MESSAGE//$'\r\n'/'\n'}"
+        
+    - name: Send GitHub Action trigger data to Slack workflow
+      id: slack
+      uses: slackapi/slack-github-action@v1.24.0
+      with:
+        # This data can be any valid JSON from a previous step in the GitHub Action
+        payload: |
+          {
+            "text": "${{ github.event.repository.name }} deployed by ${{ github.event.pull_request.user.login }}",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "----------------------\n${{ github.event.repository.name }} Deployed\n----------------------\n${{ github.event.pull_request.title }}"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Pull request created by ${{ github.event.pull_request.user.login }}*"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "${{ steps.slack-body-formatter.outputs.slack-message }}"
+                }
+              }
+            ]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
