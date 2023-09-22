@@ -426,7 +426,7 @@ class QuoteHandlingThread(threading.Thread):
         timestamp = struct.unpack_from('<Q', buffer, start_index + 14 + symbol_length)[0]
 
         subprovider = None
-        match quote_bytes[3 + symbol_length]:
+        match quote_bytes[3 + symbol_length + start_index]:
             case 0:
                 subprovider = IntrinioRealtimeConstants.NO_SUBPROVIDER
             case 1:
@@ -464,7 +464,7 @@ class QuoteHandlingThread(threading.Thread):
         total_volume = struct.unpack_from('<L', buffer, start_index + 22 + symbol_length)[0]
 
         subprovider = None
-        match trade_bytes[3 + symbol_length]:
+        match trade_bytes[3 + symbol_length + start_index]:
             case 0:
                 subprovider = IntrinioRealtimeConstants.NO_SUBPROVIDER
             case 1:
