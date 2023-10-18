@@ -82,6 +82,8 @@ class IntrinioReplayClient:
         self.with_simulated_delay = options.get('with_simulated_delay')
         self.delete_file_when_done = options.get('delete_file_when_done')
         self.worker_thread_count = options.get('worker_thread_count')
+        self.write_to_csv = options.get('write_to_csv')
+        self.csv_file_path = options.get('csv_file_path')
 
         if (self.worker_thread_count is None) or (type(self.worker_thread_count) is not int) or self.worker_thread_count < 1:
             self.worker_thread_count = 4
@@ -138,6 +140,12 @@ class IntrinioReplayClient:
 
         if ('delete_file_when_done' not in options) or (type(self.delete_file_when_done) is not bool):
             raise ValueError(f"Parameter 'delete_file_when_done' is invalid, use a bool.")
+
+        if ('write_to_csv' not in options) or (type(self.write_to_csv) is not bool):
+            raise ValueError(f"Parameter 'write_to_csv' is invalid, use a bool.")
+
+        if self.write_to_csv and (('csv_file_path' not in options) or (type(self.write_to_csv) is not str)):
+            raise ValueError(f"Parameter 'csv_file_path' is invalid, use a string path.")
 
         self.file_parsing_thread = None
         self.quote_handling_threads = []
@@ -236,6 +244,11 @@ class FileParsingThread(threading.Thread):
         else:
             aggregated_ticks = self.replay_file_group_without_delay(ticks_group)
 
+        if self.client.write_to_csv:
+            csv_writer = open(self.client.csv_file_path, "w")
+            self.write_header_to_csv(csv_writer)
+            csv_writer.close()
+
         for tick in aggregated_ticks:
             self.client.events.put_nowait(tick.data)
 
@@ -280,6 +293,10 @@ class FileParsingThread(threading.Thread):
                 return [IntrinioRealtimeConstants.NASDAQ_BASIC]
             case _:
                 return []
+
+    @staticmethod
+    def write_header_to_csv(csv_writer):
+        csv_writer.write("\"Type\",\"Symbol\",\"Price\",\"Size\",\"Timestamp\",\"SubProvider\",\"MarketCenter\",\"Condition\",\"TotalVolume\"\r\n")
 
     def get_file(self, subprovider):
         intrinio.ApiClient().configuration.api_key['api_key'] = self.client.api_key
@@ -413,6 +430,7 @@ class QuoteHandlingThread(threading.Thread):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
         self.client = client
+        self._csv_lock = threading.Lock()
 
     @staticmethod
     def parse_quote(quote_bytes, start_index):
@@ -493,6 +511,20 @@ class QuoteHandlingThread(threading.Thread):
     def subscribed(self, ticker):
         return 'lobby' in self.client.joined_channels or ticker in self.client.joined_channels
 
+    def write_quote_to_csv(self, quote):
+        if self.client.write_to_csv:
+            with self._csv_lock:
+                csv_writer = open(self.client.csv_file_path, "a")
+                csv_writer.write(f"\"{quote.type}\",\"{quote.symbol}\",\"{quote.price}\",\"{quote.size}\",\"{quote.timestamp}\",\"{quote.subprovider}\",\"{quote.market_center}\",\"{quote.condition}\",\"{quote.TotalVolume}\"\r\n")
+                csv_writer.close()
+
+    def write_trade_to_csv(self, trade):
+        if self.client.write_to_csv:
+            with self._csv_lock:
+                csv_writer = open(self.client.csv_file_path, "a")
+                csv_writer.write(f"\"{trade.type}\",\"{trade.symbol}\",\"{trade.price}\",\"{trade.size}\",\"{trade.timestamp}\",\"{trade.subprovider}\",\"{trade.market_center}\",\"{trade.condition}\",\"\"\r\n")
+                csv_writer.close()
+
     def parse_message(self, bytes, start_index, backlog_len):
         message_type = bytes[start_index]
         message_length = bytes[start_index + 1]
@@ -503,6 +535,7 @@ class QuoteHandlingThread(threading.Thread):
             if callable(self.client.on_trade) and self.subscribed(item.symbol):
                 try:
                     self.client.on_trade(item, backlog_len)
+                    self.write_trade_to_csv(item)
                 except Exception as e:
                     self.client.logger.error(repr(e))
         else:  # message_type is ask or bid (quote)
@@ -511,6 +544,7 @@ class QuoteHandlingThread(threading.Thread):
                 if callable(self.client.on_quote) and self.subscribed(item.symbol):
                     try:
                         self.client.on_quote(item, backlog_len)
+                        self.write_quote_to_csv(item)
                     except Exception as e:
                         self.client.logger.error(repr(e))
         return new_start_index

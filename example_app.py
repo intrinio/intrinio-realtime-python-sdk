@@ -48,6 +48,8 @@ options = {
     # ,'replay_date': datetime.date.today()  # needed for ReplayClient. The date to replay.
     # ,'with_simulated_delay': False  # needed for ReplayClient. This plays back the events at the same rate they happened in market.
     # ,'delete_file_when_done': True  # needed for ReplayClient
+    # ,'write_to_csv': False  # needed for ReplayClient
+    # ,'csv_file_path': 'data.csv'  # needed for ReplayClient
 }
 
 
