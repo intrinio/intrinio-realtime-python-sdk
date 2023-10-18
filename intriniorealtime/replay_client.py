@@ -144,7 +144,7 @@ class IntrinioReplayClient:
         if ('write_to_csv' not in options) or (type(self.write_to_csv) is not bool):
             raise ValueError(f"Parameter 'write_to_csv' is invalid, use a bool.")
 
-        if self.write_to_csv and (('csv_file_path' not in options) or (type(self.write_to_csv) is not str)):
+        if self.write_to_csv and (('csv_file_path' not in options) or (type(self.csv_file_path) is not str)):
             raise ValueError(f"Parameter 'csv_file_path' is invalid, use a string path.")
 
         self.file_parsing_thread = None
