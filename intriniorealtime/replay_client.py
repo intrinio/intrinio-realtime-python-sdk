@@ -515,14 +515,14 @@ class QuoteHandlingThread(threading.Thread):
         if self.client.write_to_csv:
             with self._csv_lock:
                 csv_writer = open(self.client.csv_file_path, "a")
-                csv_writer.write(f"\"{quote.type}\",\"{quote.symbol}\",\"{quote.price}\",\"{quote.size}\",\"{quote.timestamp}\",\"{quote.subprovider}\",\"{quote.market_center}\",\"{quote.condition}\",\"{quote.TotalVolume}\"\r\n")
+                csv_writer.write(f"\"{quote.type}\",\"{quote.symbol}\",\"{quote.price}\",\"{quote.size}\",\"{quote.timestamp}\",\"{quote.subprovider}\",\"{quote.market_center}\",\"{quote.condition}\",\"\"\r\n")
                 csv_writer.close()
 
     def write_trade_to_csv(self, trade):
         if self.client.write_to_csv:
             with self._csv_lock:
                 csv_writer = open(self.client.csv_file_path, "a")
-                csv_writer.write(f"\"{trade.type}\",\"{trade.symbol}\",\"{trade.price}\",\"{trade.size}\",\"{trade.timestamp}\",\"{trade.subprovider}\",\"{trade.market_center}\",\"{trade.condition}\",\"\"\r\n")
+                csv_writer.write(f"\"{trade.type}\",\"{trade.symbol}\",\"{trade.price}\",\"{trade.size}\",\"{trade.timestamp}\",\"{trade.subprovider}\",\"{trade.market_center}\",\"{trade.condition}\",\"{trade.total_volume}\"\r\n")
                 csv_writer.close()
 
     def parse_message(self, bytes, start_index, backlog_len):
