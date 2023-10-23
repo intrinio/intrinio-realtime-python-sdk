@@ -6,7 +6,7 @@ on:
 
 jobs:
   notify:
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged == true && github.ref == 'refs/heads/production'
     
     runs-on: ubuntu-latest
     steps:
