@@ -452,6 +452,7 @@ class QuoteHandler(threading.Thread):
         if message_type == 0:  # this is a trade
             if self.bypass_parsing and callable(self.client.on_trade):
                 self.client.on_trade(bytes[start_index:new_start_index-1], None)
+                return new_start_index
 
             item = self.parse_trade(bytes, start_index)
             if callable(self.client.on_trade):
@@ -462,6 +463,7 @@ class QuoteHandler(threading.Thread):
         else:  # message_type is ask or bid (quote)
             if self.bypass_parsing and callable(self.client.on_quote):
                 self.client.on_quote(bytes[start_index:new_start_index-1], None)
+                return new_start_index
             item = self.parse_quote(bytes, start_index)
             if callable(self.client.on_quote):
                 try:
