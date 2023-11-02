@@ -72,6 +72,7 @@ class IntrinioRealtimeClient:
         self.provider = options.get('provider')
         self.ipaddress = options.get('ipaddress')
         self.tradesonly = options.get('tradesonly')
+        self.bypass_parsing = options.get('bypass_parsing', False)
 
         if 'channels' in options:
             self.channels = set(options['channels'])
@@ -128,7 +129,7 @@ class IntrinioRealtimeClient:
         self.token = None
         self.ws = None
         self.quote_receiver = None
-        self.quote_handler = QuoteHandler(self)
+        self.quote_handler = QuoteHandler(self, self.bypass_parsing)
         self.joined_channels = set()
         self.last_queue_warning_time = 0
         self.last_self_heal_backoff = -1
@@ -363,10 +364,11 @@ class QuoteReceiver(threading.Thread):
 
 
 class QuoteHandler(threading.Thread):
-    def __init__(self, client):
+    def __init__(self, client, bypass_parsing: bool):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
         self.client = client
+        self.bypass_parsing = bypass_parsing
 
     def parse_quote(self, quote_bytes, start_index):
         buffer = memoryview(quote_bytes)
@@ -448,6 +450,9 @@ class QuoteHandler(threading.Thread):
         new_start_index = start_index + message_length
         item = None
         if message_type == 0:  # this is a trade
+            if self.bypass_parsing and callable(self.client.on_trade):
+                self.client.on_trade(bytes[start_index:new_start_index-1])
+
             item = self.parse_trade(bytes, start_index)
             if callable(self.client.on_trade):
                 try:
@@ -455,6 +460,8 @@ class QuoteHandler(threading.Thread):
                 except Exception as e:
                     self.client.logger.error(repr(e))
         else:  # message_type is ask or bid (quote)
+            if self.bypass_parsing and callable(self.client.on_quote):
+                self.client.on_quote(bytes[start_index:new_start_index-1])
             item = self.parse_quote(bytes, start_index)
             if callable(self.client.on_quote):
                 try:
