@@ -326,11 +326,11 @@ class QuoteReceiver(threading.Thread):
         self.client.ws.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
         self.client.logger.debug("QuoteReceiver exiting")
 
-    def on_open(self):
+    def on_open(self, ws):
         self.client.logger.info("Websocket opened!")
         self.client.on_connect()
 
-    def on_close(self):
+    def on_close(self, ws, code, message):
         self.client.logger.info("Websocket closed!")
 
     def on_error(self, ws, error, *args):
@@ -451,7 +451,7 @@ class QuoteHandler(threading.Thread):
         item = None
         if message_type == 0:  # this is a trade
             if self.bypass_parsing and callable(self.client.on_trade):
-                self.client.on_trade(bytes[start_index:new_start_index-1])
+                self.client.on_trade(bytes[start_index:new_start_index-1], None)
 
             item = self.parse_trade(bytes, start_index)
             if callable(self.client.on_trade):
@@ -461,7 +461,7 @@ class QuoteHandler(threading.Thread):
                     self.client.logger.error(repr(e))
         else:  # message_type is ask or bid (quote)
             if self.bypass_parsing and callable(self.client.on_quote):
-                self.client.on_quote(bytes[start_index:new_start_index-1])
+                self.client.on_quote(bytes[start_index:new_start_index-1], None)
             item = self.parse_quote(bytes, start_index)
             if callable(self.client.on_quote):
                 try:
