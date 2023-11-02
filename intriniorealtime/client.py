@@ -6,7 +6,7 @@ import logging
 import queue
 import struct
 import sys
-import wsaccel
+from typing import Optional, Dict, Any
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 REALTIME = "REALTIME"
@@ -61,7 +61,7 @@ class Trade:
 
 
 class IntrinioRealtimeClient:
-    def __init__(self, options, on_trade, on_quote):
+    def __init__(self, options: Dict[str, Any], on_trade: Optional[callable], on_quote: Optional[callable]):
         if options is None:
             raise ValueError("Options parameter is required")
 
@@ -152,7 +152,7 @@ class IntrinioRealtimeClient:
 
         return auth_url
 
-    def api_auth_url(self, auth_url):
+    def api_auth_url(self, auth_url: str) -> str:
         if "?" in auth_url:
             auth_url = auth_url + "&"
         else:
@@ -306,10 +306,10 @@ class IntrinioRealtimeClient:
 
 
 class QuoteReceiver(threading.Thread):
-    def __init__(self, client):
+    def __init__(self, client: IntrinioRealtimeClient):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
-        self.client = client
+        self.client: IntrinioRealtimeClient = client
         self.enabled = True
 
     def run(self):
@@ -326,11 +326,11 @@ class QuoteReceiver(threading.Thread):
         self.client.ws.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
         self.client.logger.debug("QuoteReceiver exiting")
 
-    def on_open(self, ws):
+    def on_open(self):
         self.client.logger.info("Websocket opened!")
         self.client.on_connect()
 
-    def on_close(self, ws, code, message):
+    def on_close(self):
         self.client.logger.info("Websocket closed!")
 
     def on_error(self, ws, error, *args):
@@ -364,13 +364,13 @@ class QuoteReceiver(threading.Thread):
 
 
 class QuoteHandler(threading.Thread):
-    def __init__(self, client, bypass_parsing: bool):
+    def __init__(self, client: IntrinioRealtimeClient, bypass_parsing: bool):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
-        self.client = client
+        self.client: IntrinioRealtimeClient = client
         self.bypass_parsing = bypass_parsing
 
-    def parse_quote(self, quote_bytes, start_index):
+    def parse_quote(self, quote_bytes: bytes, start_index: int) -> Quote:
         buffer = memoryview(quote_bytes)
         symbol_length = quote_bytes[start_index + 2]
         condition_length = quote_bytes[start_index + 22 + symbol_length]
@@ -407,7 +407,7 @@ class QuoteHandler(threading.Thread):
 
         return Quote(symbol, quote_type, price, size, timestamp, subprovider, market_center, condition)
 
-    def parse_trade(self, trade_bytes, start_index):
+    def parse_trade(self, trade_bytes: bytes, start_index: int) -> Trade:
         buffer = memoryview(trade_bytes)
         symbol_length = trade_bytes[start_index + 2]
         condition_length = trade_bytes[start_index + 26 + symbol_length]
@@ -444,7 +444,7 @@ class QuoteHandler(threading.Thread):
 
         return Trade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
 
-    def parse_message(self, bytes, start_index, backlog_len):
+    def parse_message(self, bytes: bytes, start_index: int, backlog_len: int) -> int:
         message_type = bytes[start_index]
         message_length = bytes[start_index + 1]
         new_start_index = start_index + message_length
