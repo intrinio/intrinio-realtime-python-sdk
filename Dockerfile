@@ -11,4 +11,6 @@ RUN pip install 'websocket-client'
 RUN pip install 'requests'
 RUN pip install 'wsaccel'
 
+RUN pip install 'intrinio_sdk'
+
 CMD python example_app.py
