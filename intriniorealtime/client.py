@@ -425,7 +425,7 @@ class QuoteHandler(threading.Thread):
             5: NASDAQ_BASIC,
             6: IEX,
         }
-        subprovider = subprovider_codes.get(buffer[3 + symbol_length + start_index], IEX)
+        subprovider = subprovider_codes.get(buffer[3 + symbol_length + start_index], NO_SUBPROVIDER)
         market_center = buffer[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].tobytes().decode("utf-16")
         
         return Trade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
