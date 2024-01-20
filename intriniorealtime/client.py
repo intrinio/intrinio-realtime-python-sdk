@@ -405,41 +405,29 @@ class QuoteHandler(threading.Thread):
 
         return Quote(symbol, quote_type, price, size, timestamp, subprovider, market_center, condition)
 
-    def parse_trade(self, trade_bytes, start_index):
+    def parse_trade(self, trade_bytes, start_index=0):
         buffer = memoryview(trade_bytes)
-        symbol_length = trade_bytes[start_index + 2]
-        condition_length = trade_bytes[start_index + 26 + symbol_length]
-        symbol = trade_bytes[(start_index + 3):(start_index + 3 + symbol_length)].decode("ascii")
-        price = struct.unpack_from('<f', buffer, start_index + 6 + symbol_length)[0]
-        size = struct.unpack_from('<L', buffer, start_index + 10 + symbol_length)[0]
-        timestamp = struct.unpack_from('<Q', buffer, start_index + 14 + symbol_length)[0]
-        total_volume = struct.unpack_from('<L', buffer, start_index + 22 + symbol_length)[0]
-
-        subprovider = None
-        match trade_bytes[3 + symbol_length + start_index]:
-            case 0:
-                subprovider = NO_SUBPROVIDER
-            case 1:
-                subprovider = CTA_A
-            case 2:
-                subprovider = CTA_B
-            case 3:
-                subprovider = UTP
-            case 4:
-                subprovider = OTC
-            case 5:
-                subprovider = NASDAQ_BASIC
-            case 6:
-                subprovider = IEX
-            case _:
-                subprovider = IEX
-
-        market_center = trade_bytes[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].decode("utf-16")
-
+        symbol_length = buffer[start_index + 2]
+        symbol = buffer[(start_index + 3):(start_index + 3 + symbol_length)].tobytes().decode("ascii")
+        price, size, timestamp, total_volume = struct.unpack_from('<fLQL', buffer, start_index + 6 + symbol_length)
+        
+        condition_length = buffer[start_index + 26 + symbol_length]
         condition = ""
         if condition_length > 0:
-            condition = trade_bytes[(start_index + 27 + symbol_length):(start_index + 27 + symbol_length + condition_length)].decode("ascii")
-
+            condition = buffer[(start_index + 27 + symbol_length):(start_index + 27 + symbol_length + condition_length)].tobytes().decode("ascii")
+        
+        subprovider_codes = {
+            0: NO_SUBPROVIDER,
+            1: CTA_A,
+            2: CTA_B,
+            3: UTP,
+            4: OTC,
+            5: NASDAQ_BASIC,
+            6: IEX,
+        }
+        subprovider = subprovider_codes.get(buffer[3 + symbol_length + start_index], IEX)
+        market_center = buffer[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].tobytes().decode("utf-16")
+        
         return Trade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
 
     def parse_message(self, bytes, start_index, backlog_len):
