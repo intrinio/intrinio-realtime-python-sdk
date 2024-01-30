@@ -410,20 +410,20 @@ class QuoteHandler(threading.Thread):
         
         return Trade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
 
-    def parse_message(self, bytes, start_index, backlog_len):
-        message_type = bytes[start_index]
-        message_length = bytes[start_index + 1]
+    def parse_message(self, message_bytes, start_index, backlog_len):
+        message_type = message_bytes[start_index]
+        message_length = message_bytes[start_index + 1]
         new_start_index = start_index + message_length
         item = None
         if message_type == 0:  # this is a trade
-            item = self.parse_trade(bytes, start_index)
+            item = self.parse_trade(message_bytes, start_index)
             if callable(self.client.on_trade):
                 try:
                     self.client.on_trade(item, backlog_len)
                 except Exception as e:
                     self.client.logger.error(repr(e))
         else:  # message_type is ask or bid (quote)
-            item = self.parse_quote(bytes, start_index)
+            item = self.parse_quote(message_bytes, start_index)
             if callable(self.client.on_quote):
                 try:
                     self.client.on_quote(item, backlog_len)
