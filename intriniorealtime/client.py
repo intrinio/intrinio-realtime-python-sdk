@@ -28,7 +28,7 @@ DEBUGGING = not (sys.gettrace() is None)
 HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
 HEADER_MESSAGE_FORMAT_VALUE = "v2"
 HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
-HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.1.1"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.2.0"
 
 
 class Quote:
