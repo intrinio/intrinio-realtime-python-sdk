@@ -7,6 +7,7 @@ import queue
 import struct
 import sys
 import wsaccel
+from typing import Optional, Dict, Any
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 REALTIME = "REALTIME"
@@ -61,7 +62,7 @@ class Trade:
 
 
 class IntrinioRealtimeClient:
-    def __init__(self, options, on_trade, on_quote):
+    def __init__(self, options: Dict[str, Any], on_trade: callable, on_quote: callable):
         if options is None:
             raise ValueError("Options parameter is required")
 
@@ -134,7 +135,7 @@ class IntrinioRealtimeClient:
         self.last_self_heal_backoff = -1
         self.quote_handler.start()
 
-    def auth_url(self):
+    def auth_url(self) -> str:
         auth_url = ""
 
         if self.provider == REALTIME:
@@ -151,7 +152,7 @@ class IntrinioRealtimeClient:
 
         return auth_url
 
-    def api_auth_url(self, auth_url):
+    def api_auth_url(self, auth_url: str) -> str:
         if "?" in auth_url:
             auth_url = auth_url + "&"
         else:
@@ -159,7 +160,7 @@ class IntrinioRealtimeClient:
 
         return auth_url + "api_key=" + self.api_key
 
-    def websocket_url(self):
+    def websocket_url(self) -> str:
         if self.provider == REALTIME:
             return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         elif self.provider == DELAYED_SIP:
@@ -229,14 +230,14 @@ class IntrinioRealtimeClient:
             self.logger.error("Quote queue is full! Dropped some new quotes")
             self.last_queue_warning_time = time.time()
 
-    def join(self, channels):
+    def join(self, channels: list[str]):
         if isinstance(channels, str):
             channels = [channels]
 
         self.channels = self.channels | set(channels)
         self.refresh_channels()
 
-    def leave(self, channels):
+    def leave(self, channels: list[str]):
         if isinstance(channels, str):
             channels = [channels]
 
@@ -270,7 +271,7 @@ class IntrinioRealtimeClient:
         self.joined_channels = self.channels.copy()
         self.logger.debug(f"Current channels: {self.joined_channels}")
 
-    def join_binary_message(self, channel):
+    def join_binary_message(self, channel: str):
         if channel == "lobby":
             message = bytearray([74, 1 if self.tradesonly else 0])
             channel_bytes = bytes("$FIREHOSE", 'ascii')
@@ -282,7 +283,7 @@ class IntrinioRealtimeClient:
             message.extend(channel_bytes)
             return message
 
-    def leave_binary_message(self, channel):
+    def leave_binary_message(self, channel: str):
         if channel == "lobby":
             message = bytearray([76])
             channel_bytes = bytes("$FIREHOSE", 'ascii')
@@ -294,7 +295,7 @@ class IntrinioRealtimeClient:
             message.extend(channel_bytes)
             return message
 
-    def valid_api_key(self, api_key):
+    def valid_api_key(self, api_key: str):
         if not isinstance(api_key, str):
             return False
 
