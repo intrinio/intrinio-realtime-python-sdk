@@ -307,10 +307,10 @@ class IntrinioRealtimeClient:
 
 
 class QuoteReceiver(threading.Thread):
-    def __init__(self, client: IntrinioRealtimeClient):
+    def __init__(self, client):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
-        self.client: IntrinioRealtimeClient = client
+        self.client = client
         self.enabled = True
 
     def run(self):
