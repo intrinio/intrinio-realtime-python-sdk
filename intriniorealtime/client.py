@@ -62,7 +62,7 @@ class Trade:
 
 
 class IntrinioRealtimeClient:
-    def __init__(self, options: Dict[str, Any], on_trade: callable, on_quote: callable):
+    def __init__(self, options: Dict[str, Any], on_trade: Optional[callable], on_quote: Optional[callable]):
         if options is None:
             raise ValueError("Options parameter is required")
 
@@ -73,6 +73,7 @@ class IntrinioRealtimeClient:
         self.provider = options.get('provider')
         self.ipaddress = options.get('ipaddress')
         self.tradesonly = options.get('tradesonly')
+        self.bypass_parsing = options.get('bypass_parsing', False)
 
         if 'channels' in options:
             self.channels = set(options['channels'])
@@ -129,7 +130,7 @@ class IntrinioRealtimeClient:
         self.token = None
         self.ws = None
         self.quote_receiver = None
-        self.quote_handler = QuoteHandler(self)
+        self.quote_handler = QuoteHandler(self, self.bypass_parsing)
         self.joined_channels = set()
         self.last_queue_warning_time = 0
         self.last_self_heal_backoff = -1
@@ -306,10 +307,10 @@ class IntrinioRealtimeClient:
 
 
 class QuoteReceiver(threading.Thread):
-    def __init__(self, client):
+    def __init__(self, client: IntrinioRealtimeClient):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
-        self.client = client
+        self.client: IntrinioRealtimeClient = client
         self.enabled = True
 
     def run(self):
@@ -364,10 +365,11 @@ class QuoteReceiver(threading.Thread):
 
 
 class QuoteHandler(threading.Thread):
-    def __init__(self, client):
+    def __init__(self, client, bypass_parsing: bool):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
         self.client = client
+        self.bypass_parsing = bypass_parsing
         self.subprovider_codes = {
             0: NO_SUBPROVIDER,
             1: CTA_A,
@@ -378,7 +380,7 @@ class QuoteHandler(threading.Thread):
             6: IEX,
         }
 
-    def parse_quote(self, quote_bytes, start_index=0):
+    def parse_quote(self, quote_bytes: bytes, start_index: int = 0) -> Quote:
         buffer = memoryview(quote_bytes)
         symbol_length = buffer[start_index + 2]
         symbol = buffer[(start_index + 3):(start_index + 3 + symbol_length)].tobytes().decode("ascii")
@@ -395,7 +397,8 @@ class QuoteHandler(threading.Thread):
 
         return Quote(symbol, quote_type, price, size, timestamp, subprovider, market_center, condition)
 
-    def parse_trade(self, trade_bytes, start_index=0):
+
+    def parse_trade(self, trade_bytes: bytes, start_index: int = 0) -> Trade:
         buffer = memoryview(trade_bytes)
         symbol_length = buffer[start_index + 2]
         symbol = buffer[(start_index + 3):(start_index + 3 + symbol_length)].tobytes().decode("ascii")
@@ -411,25 +414,33 @@ class QuoteHandler(threading.Thread):
         
         return Trade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
 
-    def parse_message(self, message_bytes, start_index, backlog_len):
+
+    def parse_message(self, message_bytes: bytes, start_index: int, backlog_len: int) -> int:
         message_type = message_bytes[start_index]
         message_length = message_bytes[start_index + 1]
         new_start_index = start_index + message_length
         item = None
         if message_type == 0:  # this is a trade
-            item = self.parse_trade(message_bytes, start_index)
             if callable(self.client.on_trade):
-                try:
-                    self.client.on_trade(item, backlog_len)
-                except Exception as e:
-                    self.client.logger.error(repr(e))
+              try:
+                if self.bypass_parsing:
+                  item = bytes[start_index:new_start_index-1]
+                else:
+                  item = self.parse_trade(message_bytes, start_index)              
+                self.client.on_trade(item, backlog_len)
+              except Exception as e:
+                self.client.logger.error(repr(e))
         else:  # message_type is ask or bid (quote)
-            item = self.parse_quote(message_bytes, start_index)
-            if callable(self.client.on_quote):
-                try:
-                    self.client.on_quote(item, backlog_len)
-                except Exception as e:
-                    self.client.logger.error(repr(e))
+          if callable(self.client.on_quote):
+              try:
+                if self.bypass_parsing:
+                  item = bytes[start_index:new_start_index-1]
+                else:
+                  item = self.parse_quote(message_bytes, start_index)              
+                self.client.on_quote(item, backlog_len)
+              except Exception as e:
+                self.client.logger.error(repr(e))
+            
         return new_start_index
 
     def run(self):

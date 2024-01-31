@@ -2,10 +2,10 @@ import threading
 import signal
 import time
 import sys
-from threading import Timer,Thread,Event
+from threading import Event
 from intriniorealtime.client import IntrinioRealtimeClient
 from intriniorealtime.replay_client import IntrinioReplayClient
-import datetime
+from intriniorealtime.client import Quote
 
 trade_count = 0
 ask_count = 0
@@ -17,7 +17,7 @@ def on_quote(quote, backlog):
         global bid_count
         global backlog_count
         backlog_count = backlog
-        if 'type' in quote.__dict__:
+        if isinstance(quote, Quote) and 'type' in quote.__dict__:
             if quote.type == "ask": ask_count += 1
             else: bid_count += 1
 
@@ -44,12 +44,13 @@ class Summarize(threading.Thread):
 
 options = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'REALTIME'  # 'REALTIME' or DELAYED_SIP or NASDAQ_BASIC
+    'provider': 'REALTIME',  # 'REALTIME' or DELAYED_SIP or NASDAQ_BASIC
     # ,'replay_date': datetime.date.today() - datetime.timedelta(days=1)  # needed for ReplayClient. The date to replay.
     # ,'with_simulated_delay': False  # needed for ReplayClient. This plays back the events at the same rate they happened in market.
     # ,'delete_file_when_done': True  # needed for ReplayClient
     # ,'write_to_csv': False  # needed for ReplayClient
     # ,'csv_file_path': 'data.csv'  # needed for ReplayClient
+    # 'bypass_parsing': True # if you want to handle parsing yourself, set this to True. Otherwise, leave it alone.
 }
 
 
