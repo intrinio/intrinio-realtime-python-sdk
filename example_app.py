@@ -2,10 +2,12 @@ import threading
 import signal
 import time
 import sys
+import datetime
 from threading import Timer,Thread,Event
 from intriniorealtime.client import IntrinioRealtimeClient
 from intriniorealtime.replay_client import IntrinioReplayClient
-import datetime
+from intriniorealtime.client import Quote
+from intriniorealtime.client import Trade
 
 trade_count = 0
 ask_count = 0
@@ -17,7 +19,7 @@ def on_quote(quote, backlog):
         global bid_count
         global backlog_count
         backlog_count = backlog
-        if 'type' in quote.__dict__:
+        if isinstance(quote, Quote) and 'type' in quote.__dict__:
             if quote.type == "ask": ask_count += 1
             else: bid_count += 1
 
@@ -50,6 +52,7 @@ options = {
     # ,'delete_file_when_done': True  # needed for ReplayClient
     # ,'write_to_csv': False  # needed for ReplayClient
     # ,'csv_file_path': 'data.csv'  # needed for ReplayClient
+    # ,'bypass_parsing': True # if you want to handle parsing yourself, set this to True. Otherwise, leave it alone.
 }
 
 
