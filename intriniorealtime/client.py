@@ -424,7 +424,7 @@ class QuoteHandler(threading.Thread):
             if callable(self.client.on_trade):
                 try:
                     if self.bypass_parsing:
-                        item = bytes[start_index:new_start_index - 1]
+                        item = message_bytes[start_index:new_start_index - 1]
                     else:
                         item = self.parse_trade(message_bytes, start_index)
                     self.client.on_trade(item, backlog_len)
@@ -434,7 +434,7 @@ class QuoteHandler(threading.Thread):
             if callable(self.client.on_quote):
                 try:
                     if self.bypass_parsing:
-                        item = bytes[start_index:new_start_index - 1]
+                        item = message_bytes[start_index:new_start_index - 1]
                     else:
                         item = self.parse_quote(message_bytes, start_index)
                     self.client.on_quote(item, backlog_len)
