@@ -60,6 +60,9 @@ class Trade:
     def __str__(self):
         return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", subprovider: " + str(self.subprovider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
 
+    def is_darkpool(self):
+        return (not self.market_center) or self.market_center == 'D' or self.market_center == 'E' or self.market_center == '\0' or self.market_center.strip() == ''
+
 
 class IntrinioRealtimeClient:
     def __init__(self, options: Dict[str, Any], on_trade: Optional[callable], on_quote: Optional[callable]):
