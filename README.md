@@ -243,7 +243,9 @@ options = {
     'provider': 'REALTIME', # REALTIME or DELAYED_SIP or NASDAQ_BASIC
     'replay_date': datetime.date.today(),
     'with_simulated_delay': False,  # This plays back the events at the same rate they happened in market.
-    'delete_file_when_done': True
+    'delete_file_when_done': True,
+    'write_to_csv': False,  # needed for ReplayClient
+    'csv_file_path': 'data.csv'  # needed for ReplayClient
 }
 
 client = IntrinioReplayClient(options, on_trade, on_quote)
