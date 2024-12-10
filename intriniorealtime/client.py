@@ -28,7 +28,7 @@ DEBUGGING = not (sys.gettrace() is None)
 HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
 HEADER_MESSAGE_FORMAT_VALUE = "v2"
 HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
-HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.3.0"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.3.1"
 
 
 class Quote:
@@ -42,7 +42,7 @@ class Quote:
         self.market_center = market_center
         self.condition = condition
         
-    def json_keys():
+    def json_keys(self):
         return ["symbol","type","price","size","timestamp","subprovider","market_center","condition"]
         
     def to_json_array(self):
@@ -66,7 +66,7 @@ class Trade:
         self.market_center = market_center
         self.condition = condition
         
-    def json_keys():
+    def json_keys(self):
         return ["symbol","price","size","total_volume","timestamp","subprovider","market_center","condition"]
         
     def to_json_array(self):
