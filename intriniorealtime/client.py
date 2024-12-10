@@ -41,6 +41,15 @@ class Quote:
         self.subprovider = subprovider
         self.market_center = market_center
         self.condition = condition
+        
+    def json_keys():
+        return ["symbol","type","price","size","timestamp","subprovider","market_center","condition"]
+        
+    def to_json_array(self):
+        return f'["{self.symbol}","{self.type}",{self.price},{self.size},{self.timestamp},"{self.subprovider}","{self.market_center}","{self.condition}"]'
+        
+    def to_json(self):
+        return f'{{"symbol":"{self.symbol}","type":"{self.type}","price":{self.price},"size":{self.size},"timestamp":{self.timestamp},"subprovider":"{self.subprovider}","market_center":"{self.market_center}","condition":"{self.condition}"}}'
 
     def __str__(self):
         return self.symbol + ", " + self.type + ", price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", subprovider: " + str(self.subprovider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
@@ -56,6 +65,15 @@ class Trade:
         self.subprovider = subprovider
         self.market_center = market_center
         self.condition = condition
+        
+    def json_keys():
+        return ["symbol","price","size","total_volume","timestamp","subprovider","market_center","condition"]
+        
+    def to_json_array(self):
+        return f'["{self.symbol}",{self.price},{self.size},{self.total_volume},{self.timestamp},"{self.subprovider}","{self.market_center}","{self.condition}"]'
+        
+    def to_json(self):
+        return f'{{"symbol":"{self.symbol}","price":{self.price},"size":{self.size},"total_volume":{self.total_volume},"timestamp":{self.timestamp},"subprovider":"{self.subprovider}","market_center":"{self.market_center}","condition":"{self.condition}"}}'
 
     def __str__(self):
         return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", subprovider: " + str(self.subprovider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
