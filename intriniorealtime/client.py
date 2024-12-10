@@ -28,7 +28,7 @@ DEBUGGING = not (sys.gettrace() is None)
 HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
 HEADER_MESSAGE_FORMAT_VALUE = "v2"
 HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
-HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.3.1"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.3.2"
 
 
 class Quote:
@@ -41,16 +41,20 @@ class Quote:
         self.subprovider = subprovider
         self.market_center = market_center
         self.condition = condition
-        
-    def json_keys(self):
+
+    @staticmethod
+    def json_keys():
         return ["symbol","type","price","size","timestamp","subprovider","market_center","condition"]
-        
+
+    @classmethod
     def to_json_array(self):
         return f'["{self.symbol}","{self.type}",{self.price},{self.size},{self.timestamp},"{self.subprovider}","{self.market_center}","{self.condition}"]'
-        
+
+    @classmethod
     def to_json(self):
         return f'{{"symbol":"{self.symbol}","type":"{self.type}","price":{self.price},"size":{self.size},"timestamp":{self.timestamp},"subprovider":"{self.subprovider}","market_center":"{self.market_center}","condition":"{self.condition}"}}'
 
+    @classmethod
     def __str__(self):
         return self.symbol + ", " + self.type + ", price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", subprovider: " + str(self.subprovider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
 
