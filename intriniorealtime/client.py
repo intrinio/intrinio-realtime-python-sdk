@@ -473,7 +473,8 @@ class QuoteHandler(threading.Thread):
         while True:
             message = self.client.quotes.get()
             backlog_len = self.client.quotes.qsize()
-            items_in_message = message[0]
-            start_index = 1
-            for i in range(0, items_in_message):
-                start_index = self.parse_message(message, start_index, backlog_len)
+            if message is not None and len(message) > 0 and len(message) >= message[0] * 24: #sanity check on length. Should be at least as long as the smallest message times the number of messages it says it has.
+                items_in_message = message[0]
+                start_index = 1
+                for i in range(0, items_in_message):
+                    start_index = self.parse_message(message, start_index, backlog_len)
