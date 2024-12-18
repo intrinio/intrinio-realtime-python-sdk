@@ -53,6 +53,8 @@ options = {
     # ,'write_to_csv': False  # needed for ReplayClient
     # ,'csv_file_path': 'data.csv'  # needed for ReplayClient
     # ,'bypass_parsing': True # if you want to handle parsing yourself, set this to True. Otherwise, leave it alone.
+    # ,'debug': True
+    # ,'max_queue_size': 250000
 }
 
 
@@ -79,6 +81,7 @@ summarize_thread = Summarize(stop_event)
 summarize_thread.start()
 
 time.sleep(120)
+
 # sigint, or ctrl+c, during the thread wait will also perform the same below code.
 print("Stopping")
 stop_event.set()
