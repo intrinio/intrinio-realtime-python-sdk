@@ -83,7 +83,12 @@ class Trade:
         return self.symbol + ", trade, price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", subprovider: " + str(self.subprovider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
 
     def is_darkpool(self):
-        return (not self.market_center) or self.market_center == 'D' or self.market_center == 'E' or self.market_center == '\0' or self.market_center.strip() == ''
+        if self.subprovider in [CTA_A, CTA_B, OTC, UTP, DELAYED_SIP]:
+            return (not self.market_center) or self.market_center == 'D' or self.market_center == 'E' or self.market_center == '\0' or self.market_center.strip() == ''
+        elif self.subprovider == NASDAQ_BASIC:
+            return (not self.market_center) or self.market_center == 'L' or self.market_center == '2' or self.market_center == '\0' or self.market_center.strip() == ''
+        else:
+            return False
 
 
 class IntrinioRealtimeClient:
