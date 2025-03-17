@@ -7,7 +7,7 @@ def readme():
 setup(
     name = 'intriniorealtime',
     packages = ['intriniorealtime'],
-    version = '5.3.3',
+    version = '5.4.3',
     author = 'Intrinio Python SDK for Real-Time Stock Prices',
     author_email = 'success@intrinio.com',
     url = 'https://intrinio.com',
