@@ -7,9 +7,12 @@ import queue
 import struct
 import sys
 import wsaccel
+from enum import IntEnum, unique
 from typing import Optional, Dict, Any
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
+_EMPTY_STRING = ""
+_NAN = float("NAN")
 REALTIME = "REALTIME"
 DELAYED_SIP = "DELAYED_SIP"
 NASDAQ_BASIC = "NASDAQ_BASIC"
@@ -94,40 +97,40 @@ class EquitiesTrade:
 
 
 class IntrinioRealtimeEquitiesClient:
-    def __init__(self, options: Dict[str, Any], on_trade: Optional[callable], on_quote: Optional[callable]):
-        if options is None:
+    def __init__(self, configuration: Dict[str, Any], on_trade: Optional[callable], on_quote: Optional[callable]):
+        if configuration is None:
             raise ValueError("Options parameter is required")
 
-        self.options = options
-        self.api_key = options.get('api_key')
-        self.username = options.get('username')
-        self.password = options.get('password')
-        self.provider = options.get('provider')
-        self.ipaddress = options.get('ipaddress')
-        self.tradesonly = options.get('tradesonly')
-        self.bypass_parsing = options.get('bypass_parsing', False)
-        self.delayed = options.get('delayed', False)
+        self.options = configuration
+        self.api_key = configuration.get('api_key')
+        self.username = configuration.get('username')
+        self.password = configuration.get('password')
+        self.provider = configuration.get('provider')
+        self.ipaddress = configuration.get('ipaddress')
+        self.tradesonly = configuration.get('tradesonly')
+        self.bypass_parsing = configuration.get('bypass_parsing', False)
+        self.delayed = configuration.get('delayed', False)
 
-        if 'channels' in options:
-            self.channels = set(options['channels'])
+        if 'channels' in configuration:
+            self.channels = set(configuration['channels'])
         else:
             self.channels = set()
 
-        if 'logger' in options:
-            self.logger = options['logger']
+        if 'logger' in configuration:
+            self.logger = configuration['logger']
         else:
             log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             log_handler = logging.StreamHandler()
             log_handler.setFormatter(log_formatter)
             self.logger = logging.getLogger('intrinio_realtime')
-            if 'debug' in options and options['debug'] == True:
+            if 'debug' in configuration and configuration['debug'] == True:
                 self.logger.setLevel(logging.DEBUG)
             else:
                 self.logger.setLevel(logging.INFO)
             self.logger.addHandler(log_handler)
 
-        if 'max_queue_size' in options:
-            self.quotes = queue.Queue(maxsize=options['max_queue_size'])
+        if 'max_queue_size' in configuration:
+            self.quotes = queue.Queue(maxsize=configuration['max_queue_size'])
         else:
             self.quotes = queue.Queue(maxsize=MAX_QUEUE_SIZE)
 

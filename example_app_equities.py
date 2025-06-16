@@ -3,11 +3,12 @@ import signal
 import time
 import sys
 import datetime
-from threading import Timer,Thread,Event
-from intriniorealtime.client import IntrinioRealtimeEquitiesClient
-from intriniorealtime.replay_client import IntrinioReplayEquitiesClient
-from intriniorealtime.client import EquitiesQuote
-from intriniorealtime.client import EquitiesTrade
+from threading import Timer,Thread,Event,Lock
+
+from intriniorealtime.equities_client import IntrinioRealtimeEquitiesClient
+from intriniorealtime.equities_replay_client import IntrinioReplayEquitiesClient
+from intriniorealtime.equities_client import EquitiesQuote
+from intriniorealtime.equities_client import EquitiesTrade
 
 trade_count = 0
 ask_count = 0
@@ -44,7 +45,7 @@ class Summarize(threading.Thread):
             print("trades: " + str(trade_count) + "; asks: " + str(ask_count) + "; bids: " + str(bid_count) + "; backlog: " + str(backlog_count))
 
 
-options = {
+configuration = {
     'api_key': 'API_KEY_HERE',
     'provider': 'IEX' # 'REALTIME' (IEX), or 'IEX', or 'DELAYED_SIP', or 'NASDAQ_BASIC', or 'CBOE_ONE'
     # ,'delayed': True # Add this if you have realtime (nondelayed) access and want to force delayed mode. If you only have delayed mode access, this is redundant.
@@ -59,7 +60,7 @@ options = {
 }
 
 
-client = IntrinioRealtimeEquitiesClient(options, on_trade, on_quote)
+client = IntrinioRealtimeEquitiesClient(configuration, on_trade, on_quote)
 # client = IntrinioReplayClient(options, on_trade, on_quote)
 stop_event = Event()
 
