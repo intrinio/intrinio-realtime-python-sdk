@@ -20,7 +20,6 @@ class IntrinioRealtimeConstants:
     DELAYED_SIP = "DELAYED_SIP"
     NASDAQ_BASIC = "NASDAQ_BASIC"
     MANUAL = "MANUAL"
-    PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC]
     NO_PROVIDER = "NO_PROVIDER"
     NO_SUBPROVIDER = "NO_SUBPROVIDER"
     CTA_A = "CTA_A"
@@ -29,7 +28,9 @@ class IntrinioRealtimeConstants:
     OTC = "OTC"
     NASDAQ_BASIC = "NASDAQ_BASIC"
     IEX = "IEX"
-    SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX]
+    CBOE_ONE = "CBOE_ONE"
+    PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC, IEX, CBOE_ONE]
+    SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX, CBOE_ONE]
     MAX_QUEUE_SIZE = 1000000
     EVENT_BUFFER_SIZE = 100
 
@@ -70,7 +71,7 @@ class Tick:
         self.data = data
 
 
-class IntrinioReplayClient:
+class IntrinioReplayEquitiesClient:
     def __init__(self, options: Dict[str, Any], on_trade: callable, on_quote: callable):
         if options is None:
             raise ValueError("Options parameter is required")
@@ -275,6 +276,8 @@ class FileParsingThread(threading.Thread):
                 return "otc_delayed"
             case IntrinioRealtimeConstants.NASDAQ_BASIC:
                 return "nasdaq_basic"
+            case IntrinioRealtimeConstants.CBOE_ONE:
+                return "cboe_one"
             case _:
                 return "iex"
 
@@ -287,11 +290,14 @@ class FileParsingThread(threading.Thread):
                 return []
             case IntrinioRealtimeConstants.REALTIME:
                 return [IntrinioRealtimeConstants.IEX]
+            case IntrinioRealtimeConstants.IEX:
+                return [IntrinioRealtimeConstants.IEX]
             case IntrinioRealtimeConstants.DELAYED_SIP:
-                return [IntrinioRealtimeConstants.UTP, IntrinioRealtimeConstants.CTA_A, IntrinioRealtimeConstants.CTA_B,
-                        IntrinioRealtimeConstants.OTC]
+                return [IntrinioRealtimeConstants.UTP, IntrinioRealtimeConstants.CTA_A, IntrinioRealtimeConstants.CTA_B, IntrinioRealtimeConstants.OTC]
             case IntrinioRealtimeConstants.NASDAQ_BASIC:
                 return [IntrinioRealtimeConstants.NASDAQ_BASIC]
+            case IntrinioRealtimeConstants.CBOE_ONE:
+                return [IntrinioRealtimeConstants.CBOE_ONE]
             case _:
                 return []
 

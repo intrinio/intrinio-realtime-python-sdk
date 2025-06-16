@@ -30,31 +30,37 @@ pip install intriniorealtime
 ```
 
 ## Example Usage
+
 ```python
 import threading
 import time
-from threading import Timer,Thread,Event
-from intriniorealtime.client import IntrinioRealtimeClient
+from threading import Timer, Thread, Event
+from intriniorealtime.client import IntrinioRealtimeEquitiesClient
 
 trade_count = 0
 ask_count = 0
 bid_count = 0
 backlog_count = 0
 
-def on_quote(quote, backlog):
-        global ask_count
-        global bid_count
-        global backlog_count
-        backlog_count = backlog
-        if 'type' in quote.__dict__:
-            if quote.type == "ask": ask_count += 1
-            else: bid_count += 1
 
-def on_trade(trade, backlog): 
-        global trade_count
-        global backlog_count
-        backlog_count = backlog
-        trade_count += 1
+def on_quote(quote, backlog):
+    global ask_count
+    global bid_count
+    global backlog_count
+    backlog_count = backlog
+    if 'type' in quote.__dict__:
+        if quote.type == "ask":
+            ask_count += 1
+        else:
+            bid_count += 1
+
+
+def on_trade(trade, backlog):
+    global trade_count
+    global backlog_count
+    backlog_count = backlog
+    trade_count += 1
+
 
 class Summarize(threading.Thread):
     def __init__(self, event):
@@ -68,16 +74,18 @@ class Summarize(threading.Thread):
         global ask_count
         global backlog_count
         while not self.stopped.wait(5):
-            print("trades: " + str(trade_count) + "; asks: " + str(ask_count) + "; bids: " + str(bid_count) + "; backlog: " + str(backlog_count))
+            print("trades: " + str(trade_count) + "; asks: " + str(ask_count) + "; bids: " + str(
+                bid_count) + "; backlog: " + str(backlog_count))
+
 
 options = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'REALTIME' # REALTIME or DELAYED_SIP or NASDAQ_BASIC
+    'provider': 'REALTIME'  # REALTIME or DELAYED_SIP or NASDAQ_BASIC
 }
 
-client = IntrinioRealtimeClient(options, on_trade, on_quote)
-client.join(['AAPL','GE','MSFT'])
-#client.join(['lobby'])
+client = IntrinioRealtimeEquitiesClient(options, on_trade, on_quote)
+client.join(['AAPL', 'GE', 'MSFT'])
+# client.join(['lobby'])
 client.connect()
 stopFlag = Event()
 summarize_thread = Summarize(stopFlag)

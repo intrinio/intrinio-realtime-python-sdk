@@ -14,7 +14,7 @@ REALTIME = "REALTIME"
 DELAYED_SIP = "DELAYED_SIP"
 NASDAQ_BASIC = "NASDAQ_BASIC"
 MANUAL = "MANUAL"
-PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC]
+NO_PROVIDER = "NO_PROVIDER"
 NO_SUBPROVIDER = "NO_SUBPROVIDER"
 CTA_A = "CTA_A"
 CTA_B = "CTA_B"
@@ -22,16 +22,18 @@ UTP = "UTP"
 OTC = "OTC"
 NASDAQ_BASIC = "NASDAQ_BASIC"
 IEX = "IEX"
-SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX]
+CBOE_ONE = "CBOE_ONE"
+PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC, IEX, CBOE_ONE]
+SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX, CBOE_ONE]
 MAX_QUEUE_SIZE = 250000
 DEBUGGING = not (sys.gettrace() is None)
 HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
 HEADER_MESSAGE_FORMAT_VALUE = "v2"
 HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
-HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv5.4.3"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv6.0.0"
 
 
-class Quote:
+class EquitiesQuote:
     def __init__(self, symbol, type, price, size, timestamp, subprovider, market_center, condition):
         self.symbol = symbol
         self.type = type
@@ -59,7 +61,7 @@ class Quote:
         return self.symbol + ", " + self.type + ", price: " + str(self.price) + ", size: " + str(self.size) + ", timestamp: " + str(self.timestamp) + ", subprovider: " + str(self.subprovider) + ", market_center: " + str(self.market_center) + ", condition: " + str(self.condition)
 
 
-class Trade:
+class EquitiesTrade:
     def __init__(self, symbol, price, size, total_volume, timestamp, subprovider, market_center, condition):
         self.symbol = symbol
         self.price = price
@@ -91,7 +93,7 @@ class Trade:
             return False
 
 
-class IntrinioRealtimeClient:
+class IntrinioRealtimeEquitiesClient:
     def __init__(self, options: Dict[str, Any], on_trade: Optional[callable], on_quote: Optional[callable]):
         if options is None:
             raise ValueError("Options parameter is required")
@@ -160,7 +162,7 @@ class IntrinioRealtimeClient:
         self.token = None
         self.ws = None
         self.quote_receiver = None
-        self.quote_handler = QuoteHandler(self, self.bypass_parsing)
+        self.quote_handler = EquitiesQuoteHandler(self, self.bypass_parsing)
         self.joined_channels = set()
         self.last_queue_warning_time = 0
         self.last_self_heal_backoff = -1
@@ -171,12 +173,18 @@ class IntrinioRealtimeClient:
 
         if self.provider == REALTIME:
             auth_url = "https://realtime-mx.intrinio.com/auth"
+        elif self.provider == IEX:
+            auth_url = "https://realtime-mx.intrinio.com/auth"
         elif self.provider == DELAYED_SIP:
             auth_url = "https://realtime-delayed-sip.intrinio.com/auth"
         elif self.provider == NASDAQ_BASIC:
             auth_url = "https://realtime-nasdaq-basic.intrinio.com/auth"
+        elif self.provider == CBOE_ONE:
+            auth_url = "https://cboe-one.intrinio.com/auth"
         elif self.provider == MANUAL:
             auth_url = "http://" + self.ipaddress + "/auth"
+        else:
+            auth_url = "https://realtime-mx.intrinio.com/auth"
 
         if self.api_key:
             auth_url = self.api_auth_url(auth_url)
@@ -194,12 +202,18 @@ class IntrinioRealtimeClient:
     def websocket_url(self) -> str:
         if self.provider == REALTIME:
             return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+        elif self.provider == IEX:
+            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         elif self.provider == DELAYED_SIP:
             return "wss://realtime-delayed-sip.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         elif self.provider == NASDAQ_BASIC:
             return "wss://realtime-nasdaq-basic.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+        elif self.provider == CBOE_ONE:
+            return "wss://cboe-one.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
         elif self.provider == MANUAL:
             return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token
+        else:
+            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
 
     def do_backoff(self):
         self.last_self_heal_backoff += 1
@@ -248,7 +262,7 @@ class IntrinioRealtimeClient:
         self.logger.info("Authentication successful!")
 
     def refresh_websocket(self):
-        self.quote_receiver = QuoteReceiver(self)
+        self.quote_receiver = EquitiesQuoteReceiver(self)
         self.quote_receiver.start()
 
     def on_connect(self):
@@ -336,7 +350,7 @@ class IntrinioRealtimeClient:
         return True
 
 
-class QuoteReceiver(threading.Thread):
+class EquitiesQuoteReceiver(threading.Thread):
     def __init__(self, client):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
@@ -394,7 +408,7 @@ class QuoteReceiver(threading.Thread):
             raise e
 
 
-class QuoteHandler(threading.Thread):
+class EquitiesQuoteHandler(threading.Thread):
     def __init__(self, client, bypass_parsing: bool):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.daemon = True
@@ -410,7 +424,7 @@ class QuoteHandler(threading.Thread):
             6: IEX,
         }
 
-    def parse_quote(self, quote_bytes: bytes, start_index: int = 0) -> Quote:
+    def parse_quote(self, quote_bytes: bytes, start_index: int = 0) -> EquitiesQuote:
         buffer = memoryview(quote_bytes)
         symbol_length = buffer[start_index + 2]
         symbol = buffer[(start_index + 3):(start_index + 3 + symbol_length)].tobytes().decode("ascii")
@@ -425,10 +439,10 @@ class QuoteHandler(threading.Thread):
         subprovider = self.subprovider_codes.get(buffer[3 + symbol_length + start_index], IEX)  # default IEX for backward behavior consistency.
         market_center = buffer[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].tobytes().decode("utf-16")
 
-        return Quote(symbol, quote_type, price, size, timestamp, subprovider, market_center, condition)
+        return EquitiesQuote(symbol, quote_type, price, size, timestamp, subprovider, market_center, condition)
 
 
-    def parse_trade(self, trade_bytes: bytes, start_index: int = 0) -> Trade:
+    def parse_trade(self, trade_bytes: bytes, start_index: int = 0) -> EquitiesTrade:
         buffer = memoryview(trade_bytes)
         symbol_length = buffer[start_index + 2]
         symbol = buffer[(start_index + 3):(start_index + 3 + symbol_length)].tobytes().decode("ascii")
@@ -442,7 +456,7 @@ class QuoteHandler(threading.Thread):
         subprovider = self.subprovider_codes.get(buffer[3 + symbol_length + start_index], IEX) # default IEX for backward behavior consistency.
         market_center = buffer[(start_index + 4 + symbol_length):(start_index + 6 + symbol_length)].tobytes().decode("utf-16")
         
-        return Trade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
+        return EquitiesTrade(symbol, price, size, total_volume, timestamp, subprovider, market_center, condition)
 
 
     def parse_message(self, message_bytes: bytes, start_index: int, backlog_len: int) -> int:
