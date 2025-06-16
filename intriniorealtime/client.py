@@ -106,6 +106,7 @@ class IntrinioRealtimeEquitiesClient:
         self.ipaddress = options.get('ipaddress')
         self.tradesonly = options.get('tradesonly')
         self.bypass_parsing = options.get('bypass_parsing', False)
+        self.delayed = options.get('delayed', False)
 
         if 'channels' in options:
             self.channels = set(options['channels'])
@@ -183,8 +184,6 @@ class IntrinioRealtimeEquitiesClient:
             auth_url = "https://cboe-one.intrinio.com/auth"
         elif self.provider == MANUAL:
             auth_url = "http://" + self.ipaddress + "/auth"
-        else:
-            auth_url = "https://realtime-mx.intrinio.com/auth"
 
         if self.api_key:
             auth_url = self.api_auth_url(auth_url)
@@ -200,20 +199,22 @@ class IntrinioRealtimeEquitiesClient:
         return auth_url + "api_key=" + self.api_key
 
     def websocket_url(self) -> str:
+        delayed_part = "&delayed=true" if self.delayed else ""
+
         if self.provider == REALTIME:
-            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
         elif self.provider == IEX:
-            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
         elif self.provider == DELAYED_SIP:
-            return "wss://realtime-delayed-sip.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+            return "wss://realtime-delayed-sip.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
         elif self.provider == NASDAQ_BASIC:
-            return "wss://realtime-nasdaq-basic.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+            return "wss://realtime-nasdaq-basic.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
         elif self.provider == CBOE_ONE:
-            return "wss://cboe-one.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+            return "wss://cboe-one.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
         elif self.provider == MANUAL:
-            return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token
+            return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
         else:
-            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token
+            return "wss://realtime-mx.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
 
     def do_backoff(self):
         self.last_self_heal_backoff += 1
