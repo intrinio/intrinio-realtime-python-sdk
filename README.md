@@ -80,7 +80,8 @@ class Summarize(threading.Thread):
 
 options = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'REALTIME'  # REALTIME or DELAYED_SIP or NASDAQ_BASIC
+    'provider': 'IEX', # REALTIME (IEX) or IEX or CBOE_ONE or DELAYED_SIP or NASDAQ_BASIC
+    #'delayed': True, # Add this if you have realtime (nondelayed) access and want to force delayed mode. If you only have delayed mode access, this is redundant.
 }
 
 client = IntrinioRealtimeEquitiesClient(options, on_trade, on_quote)
@@ -186,7 +187,8 @@ def on_trade(trade, backlog):
     
 options = {
     'api_key': '',
-    'provider': 'REALTIME', # REALTIME or DELAYED_SIP or NASDAQ_BASIC
+    'provider': 'IEX',  # REALTIME (IEX) or IEX or CBOE_ONE or DELAYED_SIP or NASDAQ_BASIC
+    #'delayed': True, # Add this if you have realtime (nondelayed) access and want to force delayed mode. If you only have delayed mode access, this is redundant.
     'on_quote': on_quote,
     'on_trade': on_trade
 }
@@ -248,7 +250,7 @@ def on_trade(trade, backlog):
     
 options = {
     'api_key': '',
-    'provider': 'REALTIME', # REALTIME or DELAYED_SIP or NASDAQ_BASIC
+    'provider': 'IEX',  # REALTIME (IEX) or IEX or CBOE_ONE or DELAYED_SIP or NASDAQ_BASIC
     'replay_date': datetime.date.today(),
     'with_simulated_delay': False,  # This plays back the events at the same rate they happened in market.
     'delete_file_when_done': True,
