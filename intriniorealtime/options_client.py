@@ -347,7 +347,7 @@ class _WebSocket(websocket.WebSocketApp):
     def __on_error(self, ws, error):
         _log.error("Websocket - Error - {0}".format(error))
 
-    def __on_data(self, ws, data, code, continueFlag):
+    def __on_data(self, ws, data, code, continueFlag): #continueFlag - If 0, the data continues
         if code == websocket.ABNF.OPCODE_BINARY:
             with _dataMsgLock:
                 global _dataMsgCount
