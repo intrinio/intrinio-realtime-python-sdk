@@ -3,11 +3,12 @@ import signal
 import time
 import sys
 import datetime
-from threading import Timer,Thread,Event
-from intriniorealtime.client import IntrinioRealtimeClient
-from intriniorealtime.replay_client import IntrinioReplayClient
-from intriniorealtime.client import Quote
-from intriniorealtime.client import Trade
+from threading import Timer,Thread,Event,Lock
+
+from intriniorealtime.equities_client import IntrinioRealtimeEquitiesClient
+from intriniorealtime.equities_replay_client import IntrinioReplayEquitiesClient
+from intriniorealtime.equities_client import EquitiesQuote
+from intriniorealtime.equities_client import EquitiesTrade
 
 trade_count = 0
 ask_count = 0
@@ -19,7 +20,7 @@ def on_quote(quote, backlog):
         global bid_count
         global backlog_count
         backlog_count = backlog
-        if isinstance(quote, Quote) and 'type' in quote.__dict__:
+        if isinstance(quote, EquitiesQuote) and 'type' in quote.__dict__:
             if quote.type == "ask": ask_count += 1
             else: bid_count += 1
 
@@ -44,9 +45,10 @@ class Summarize(threading.Thread):
             print("trades: " + str(trade_count) + "; asks: " + str(ask_count) + "; bids: " + str(bid_count) + "; backlog: " + str(backlog_count))
 
 
-options = {
+configuration = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'REALTIME'  # 'REALTIME' or DELAYED_SIP or NASDAQ_BASIC
+    'provider': 'IEX' # 'REALTIME' (IEX), or 'IEX', or 'DELAYED_SIP', or 'NASDAQ_BASIC', or 'CBOE_ONE'
+    # ,'delayed': True # Add this if you have realtime (nondelayed) access and want to force delayed mode. If you only have delayed mode access, this is redundant.
     # ,'replay_date': datetime.date.today() - datetime.timedelta(days=1)  # needed for ReplayClient. The date to replay.
     # ,'with_simulated_delay': False  # needed for ReplayClient. This plays back the events at the same rate they happened in market.
     # ,'delete_file_when_done': True  # needed for ReplayClient
@@ -58,7 +60,7 @@ options = {
 }
 
 
-client = IntrinioRealtimeClient(options, on_trade, on_quote)
+client = IntrinioRealtimeEquitiesClient(configuration, on_trade, on_quote)
 # client = IntrinioReplayClient(options, on_trade, on_quote)
 stop_event = Event()
 
