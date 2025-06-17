@@ -414,9 +414,9 @@ class EquitiesQuoteReceiver(threading.Thread):
             self.continuation_lock.acquire()
             try:
                 if is_last == 0:
-                    self.continuation_queue.put_nowait(partial_message)
+                    self.continuation_queue.put(partial_message)
                 else:
-                    self.continuation_queue.put_nowait(partial_message)
+                    self.continuation_queue.put(partial_message)
                     full_message = self.stitch()
                     self.on_message(self.client.ws, full_message)
             finally:

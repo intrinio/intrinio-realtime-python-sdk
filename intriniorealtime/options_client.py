@@ -284,6 +284,9 @@ class _WebSocket(websocket.WebSocketApp):
                  data_queue: queue.Queue):
         super().__init__(ws_url, on_open=self.__on_open, on_close=self.__on_close, on_data=self.__on_data, on_error=self.__on_error)
         self.__wsLock: threading.Lock = ws_lock
+        self.__continuation_queue = queue.Queue(100)
+        self.__continuation_lock: threading.Lock = threading.Lock()
+        self.__currently_continuing: bool = False
         self.__worker_threads: list[threading.Thread] = worker_threads
         self.__get_channels: Callable[[None], set[tuple[str, bool]]] = get_channels
         self.__get_token: Callable[[None], str] = get_token
@@ -347,12 +350,34 @@ class _WebSocket(websocket.WebSocketApp):
     def __on_error(self, ws, error):
         _log.error("Websocket - Error - {0}".format(error))
 
-    def __on_data(self, ws, data, code, continueFlag): #continueFlag - If 0, the data continues
+    def __stitch(self):
+        full = None
+        while not self.__continuation_queue.empty():
+            partial = self.__continuation_queue.get(True, 1)
+            if full is None:
+                full = partial
+            else:
+                full = full.join(partial)
+        return full
+
+    def __on_data(self, ws, data, code, is_last): #continueFlag - If 0, the data continues
         if code == websocket.ABNF.OPCODE_BINARY:
             with _dataMsgLock:
                 global _dataMsgCount
                 _dataMsgCount += 1
-            self.__data_queue.put_nowait(data)
+
+            if self.__currently_continuing or is_last == 0: # we're either in the middle of a continue, or we're starting a continue
+                with self.__continuation_lock:
+                    if self.__currently_continuing or is_last == 0: #check lock check
+                        self.__continuation_queue.put(data)
+                        if is_last != 0:
+                            full_message = self.__stitch()
+                            self.__data_queue.put_nowait(full_message)
+                        self.__currently_continuing = True if is_last == 0 else False  # we're in the middle of a continue, but this is the last message, so remove flag
+                    else:  # We're not in the middle of a continue, and this isn't marked as multi-part, so this is a full message by itself.
+                        self.__data_queue.put_nowait(data)
+            else: # We're not in the middle of a continue, and this isn't marked as multi-part, so this is a full message by itself.
+                self.__data_queue.put_nowait(data)
         else:
             _log.debug("Websocket - Message received")
             with _txtMsgLock:
