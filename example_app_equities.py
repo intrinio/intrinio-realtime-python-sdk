@@ -82,7 +82,7 @@ client.connect()
 summarize_thread = Summarize(stop_event)
 summarize_thread.start()
 
-time.sleep(120)
+time.sleep(60 * 60 * 8)
 
 # sigint, or ctrl+c, during the thread wait will also perform the same below code.
 print("Stopping")

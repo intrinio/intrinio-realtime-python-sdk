@@ -360,6 +360,8 @@ class EquitiesQuoteReceiver(threading.Thread):
         self.daemon = True
         self.client = client
         self.enabled = True
+        self.continuation_queue = queue.Queue(100)
+        self.continuation_lock: threading.Lock = threading.Lock()
 
     def run(self):
         self.client.ws = websocket.WebSocketApp(
@@ -368,6 +370,7 @@ class EquitiesQuoteReceiver(threading.Thread):
             on_open=self.on_open,
             on_close=self.on_close,
             on_message=self.on_message,
+            on_cont_message=self.on_cont_message,
             on_error=self.on_error
         )
 
@@ -390,11 +393,53 @@ class EquitiesQuoteReceiver(threading.Thread):
             self.client.logger.error(f"Error in on_error handler: {repr(e)}; {repr(error)}")
             raise e
 
+    def stitch(self):
+        full = None
+        while not self.continuation_queue.empty():
+            partial = self.continuation_queue.get(True, 1)
+            if full is None:
+                full = partial
+            else:
+                full = full.join(partial)
+        return full
+
+    def on_cont_message(self, partial_message, is_last): # The 3rd argument is continue flag. if 0, the data continue
+        try:
+            if DEBUGGING:  # This is here for performance reasons so we don't use slow reflection on every message.
+                if isinstance(partial_message, str):
+                    self.client.logger.debug(f"Received partial message (str): {partial_message.encode('utf-8').hex()}")
+                else:
+                    if isinstance(partial_message, bytes):
+                        self.client.logger.debug(f"Received partial message (hex): {partial_message.hex()}")
+            #self.client.logger.debug(f"Received partial message (hex): {partial_message.hex()}")
+
+            self.continuation_lock.acquire()
+            try:
+                if is_last == 0:
+                    self.continuation_queue.put(partial_message)
+                else:
+                    self.continuation_queue.put(partial_message)
+                    full_message = self.stitch()
+                    self.on_message(self.client.ws, full_message)
+            finally:
+                self.continuation_lock.release()
+        except queue.Full:
+            self.client.on_queue_full()
+        except Exception as e:
+            hex_message = ""
+            if isinstance(partial_message, str):
+                hex_message = partial_message.encode('utf-8').hex()
+            else:
+                if isinstance(partial_message, bytes):
+                    hex_message = partial_message.hex()
+            self.client.logger.error(f"Websocket on_message ERROR. Message as hex: {hex_message}; error: {repr(e)}")
+            raise e
+
     def on_message(self, ws, message):
         try:
             if DEBUGGING:  # This is here for performance reasons so we don't use slow reflection on every message.
                 if isinstance(message, str):
-                    self.client.logger.debug(f"Received message (hex): {message.encode('utf-8').hex()}")
+                    self.client.logger.debug(f"Received message (str): {message.encode('utf-8').hex()}")
                 else:
                     if isinstance(message, bytes):
                         self.client.logger.debug(f"Received message (hex): {message.hex()}")
