@@ -369,15 +369,16 @@ class _WebSocket(websocket.WebSocketApp):
             if self.__currently_continuing or is_last == 0: # we're either in the middle of a continue, or we're starting a continue
                 with self.__continuation_lock:
                     if self.__currently_continuing or is_last == 0: #check lock check
+                        #_log.info(f"Received partial message (hex): {data.hex()}")
                         self.__continuation_queue.put(data)
                         if is_last != 0:
                             full_message = self.__stitch()
-                            self.__data_queue.put_nowait(full_message)
+                            self.__data_queue.put(full_message)
                         self.__currently_continuing = True if is_last == 0 else False  # we're in the middle of a continue, but this is the last message, so remove flag
                     else:  # We're not in the middle of a continue, and this isn't marked as multi-part, so this is a full message by itself.
-                        self.__data_queue.put_nowait(data)
+                        self.__data_queue.put(data)
             else: # We're not in the middle of a continue, and this isn't marked as multi-part, so this is a full message by itself.
-                self.__data_queue.put_nowait(data)
+                self.__data_queue.put(data)
         else:
             _log.debug("Websocket - Message received")
             with _txtMsgLock:
@@ -500,13 +501,18 @@ def _thread_fn(index: int, data: queue.Queue,
                on_refresh: Callable[[OptionsRefresh], None] = None,
                on_unusual_activity: Callable[[OptionsUnusualActivity], None] = None):
     _log.debug("Starting worker thread {0}".format(index))
+    datum: bytes = None
+    count: int = 0
+    start_index: int = 1
+    msg_type: int = 0
+    message: bytes = None
     while not _stopFlag.is_set():
         try:
-            datum: bytes = data.get(True, 1.0)
-            count: int = datum[0]
-            start_index: int = 1
+            datum = data.get(True, 1.0)
+            count = datum[0]
+            start_index = 1
             for _ in range(count):
-                msg_type: int = datum[start_index + 22]
+                msg_type = datum[start_index + 22]
                 if msg_type == 1:  # Quote
                     message: bytes = datum[start_index:(start_index + _OPTIONS_QUOTE_MESSAGE_SIZE)]
                     # byte structure:
@@ -614,6 +620,7 @@ def _thread_fn(index: int, data: queue.Queue,
             continue
         except Exception as e:
             _log.error(f"Worker thread {index} Exception {e}")
+            _log.error(f"\tCurrent count: {count}\r\n\tCurrent start_index: {start_index}\r\n\tCurrent msg_type: {msg_type}\r\n\tFull message (hex): {datum.hex()}\r\n\tScoped message: {message.hex()}")
             continue
     _log.debug("Worker thread {0} stopped".format(index))
 

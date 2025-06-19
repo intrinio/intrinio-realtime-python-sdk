@@ -407,10 +407,12 @@ class EquitiesQuoteReceiver(threading.Thread):
         try:
             if DEBUGGING:  # This is here for performance reasons so we don't use slow reflection on every message.
                 if isinstance(partial_message, str):
-                    self.client.logger.debug(f"Received message (hex): {partial_message.encode('utf-8').hex()}")
+                    self.client.logger.debug(f"Received partial message (str): {partial_message.encode('utf-8').hex()}")
                 else:
                     if isinstance(partial_message, bytes):
-                        self.client.logger.debug(f"Received message (hex): {partial_message.hex()}")
+                        self.client.logger.debug(f"Received partial message (hex): {partial_message.hex()}")
+            #self.client.logger.debug(f"Received partial message (hex): {partial_message.hex()}")
+
             self.continuation_lock.acquire()
             try:
                 if is_last == 0:
@@ -437,7 +439,7 @@ class EquitiesQuoteReceiver(threading.Thread):
         try:
             if DEBUGGING:  # This is here for performance reasons so we don't use slow reflection on every message.
                 if isinstance(message, str):
-                    self.client.logger.debug(f"Received message (hex): {message.encode('utf-8').hex()}")
+                    self.client.logger.debug(f"Received message (str): {message.encode('utf-8').hex()}")
                 else:
                     if isinstance(message, bytes):
                         self.client.logger.debug(f"Received message (hex): {message.hex()}")
