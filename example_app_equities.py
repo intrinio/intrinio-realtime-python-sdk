@@ -32,7 +32,7 @@ def on_trade(trade, backlog):
 
 class Summarize(threading.Thread):
     def __init__(self, stop_flag):
-        threading.Thread.__init__(self, args=(), kwargs=None)
+        threading.Thread.__init__(self, group=None, args=(), kwargs={})
         self.daemon = True
         self.stop_flag = stop_flag
 

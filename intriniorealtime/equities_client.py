@@ -355,7 +355,7 @@ class IntrinioRealtimeEquitiesClient:
 
 class EquitiesQuoteReceiver(threading.Thread):
     def __init__(self, client):
-        threading.Thread.__init__(self, args=(), kwargs=None)
+        threading.Thread.__init__(self, group=None, args=(), kwargs={})
         self.daemon = True
         self.client = client
         self.enabled = True
@@ -458,7 +458,7 @@ class EquitiesQuoteReceiver(threading.Thread):
 
 class EquitiesQuoteHandler(threading.Thread):
     def __init__(self, client, bypass_parsing: bool):
-        threading.Thread.__init__(self, args=(), kwargs=None)
+        threading.Thread.__init__(self, group=None, args=(), kwargs={})
         self.daemon = True
         self.client = client
         self.bypass_parsing = bypass_parsing
