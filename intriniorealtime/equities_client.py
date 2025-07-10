@@ -23,7 +23,6 @@ CTA_A = "CTA_A"
 CTA_B = "CTA_B"
 UTP = "UTP"
 OTC = "OTC"
-NASDAQ_BASIC = "NASDAQ_BASIC"
 IEX = "IEX"
 CBOE_ONE = "CBOE_ONE"
 PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC, IEX, CBOE_ONE]
@@ -471,6 +470,7 @@ class EquitiesQuoteHandler(threading.Thread):
             4: OTC,
             5: NASDAQ_BASIC,
             6: IEX,
+            7: CBOE_ONE
         }
 
     def parse_quote(self, quote_bytes: bytes, start_index: int = 0) -> EquitiesQuote:
