@@ -446,6 +446,7 @@ class QuoteHandlingThread(threading.Thread):
             4: IntrinioRealtimeConstants.OTC,
             5: IntrinioRealtimeConstants.NASDAQ_BASIC,
             6: IntrinioRealtimeConstants.IEX,
+            7: IntrinioRealtimeConstants.CBOE_ONE,
         }
 
     def parse_quote(self, quote_bytes, start_index=0):
