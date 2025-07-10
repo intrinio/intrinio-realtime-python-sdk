@@ -228,7 +228,7 @@ class IntrinioReplayEquitiesClient:
 
 class FileParsingThread(threading.Thread):
     def __init__(self, client):
-        threading.Thread.__init__(self, args=(), kwargs=None)
+        threading.Thread.__init__(self, group=None, args=(), kwargs={})
         self.daemon = True
         self.client = client
         self.enabled = True
@@ -434,7 +434,7 @@ class FileParsingThread(threading.Thread):
 
 class QuoteHandlingThread(threading.Thread):
     def __init__(self, client):
-        threading.Thread.__init__(self, args=(), kwargs=None)
+        threading.Thread.__init__(self, group=None, args=(), kwargs={})
         self.daemon = True
         self.client = client
         self._csv_lock = threading.Lock()

@@ -32,7 +32,7 @@ DEBUGGING = not (sys.gettrace() is None)
 HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
 HEADER_MESSAGE_FORMAT_VALUE = "v2"
 HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
-HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv6.0.2"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv6.0.3"
 
 
 class EquitiesQuote:
@@ -355,7 +355,7 @@ class IntrinioRealtimeEquitiesClient:
 
 class EquitiesQuoteReceiver(threading.Thread):
     def __init__(self, client):
-        threading.Thread.__init__(self, args=(), kwargs=None)
+        threading.Thread.__init__(self, group=None, args=(), kwargs={})
         self.daemon = True
         self.client = client
         self.enabled = True
@@ -458,7 +458,7 @@ class EquitiesQuoteReceiver(threading.Thread):
 
 class EquitiesQuoteHandler(threading.Thread):
     def __init__(self, client, bypass_parsing: bool):
-        threading.Thread.__init__(self, args=(), kwargs=None)
+        threading.Thread.__init__(self, group=None, args=(), kwargs={})
         self.daemon = True
         self.client = client
         self.bypass_parsing = bypass_parsing

@@ -81,7 +81,7 @@ def on_trade(trade, backlog):
 
 class Summarize(threading.Thread):
     def __init__(self, stop_flag):
-        threading.Thread.__init__(self, args=(), kwargs=None)
+        threading.Thread.__init__(self, group=None, args=(), kwargs={})
         self.daemon = True
         self.stop_flag = stop_flag
 
@@ -386,7 +386,7 @@ def on_unusual_activity(ua: OptionsUnusualActivity):
 
 class Summarize(threading.Thread):
     def __init__(self, stop_flag: threading.Event, intrinio_client: IntrinioRealtimeOptionsClient):
-        threading.Thread.__init__(self, args=(), kwargs=None, daemon=True)
+        threading.Thread.__init__(self, group=None, args=(), kwargs={}, daemon=True)
         self.__stop_flag: threading.Event = stop_flag
         self.__client = intrinio_client
 
