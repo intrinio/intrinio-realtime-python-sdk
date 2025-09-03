@@ -47,7 +47,7 @@ class Summarize(threading.Thread):
 
 configuration = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'IEX' # 'REALTIME' (IEX), or 'IEX', or 'DELAYED_SIP', or 'NASDAQ_BASIC', or 'CBOE_ONE'
+    'provider': 'IEX' # 'REALTIME' (IEX), or 'IEX', or 'DELAYED_SIP', or 'NASDAQ_BASIC', or 'CBOE_ONE', or 'EQUITIES_EDGE'
     # ,'delayed': True # Add this if you have realtime (nondelayed) access and want to force delayed mode. If you only have delayed mode access, this is redundant.
     # ,'replay_date': datetime.date.today() - datetime.timedelta(days=1)  # needed for ReplayClient. The date to replay.
     # ,'with_simulated_delay': False  # needed for ReplayClient. This plays back the events at the same rate they happened in market.
