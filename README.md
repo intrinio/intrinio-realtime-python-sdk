@@ -1,5 +1,5 @@
 # intrinio realtime python sdk
-SDK for working with Intrinio's realtime OPRA, IEX, delayed SIP, CBOE One, or NASDAQ Basic prices feeds.  Get a comprehensive view with increased market volume and enjoy minimized exchange and per user fees.
+SDK for working with Intrinio's realtime OPRA, Options Edge, IEX, delayed SIP, CBOE One, Equities Edge, or NASDAQ Basic prices feeds.  Get a comprehensive view with increased market volume and enjoy minimized exchange and per user fees.
 
 [Intrinio](https://intrinio.com/) provides real-time stock and option prices via a two-way WebSocket connection. To get started, [subscribe to a real-time equity feed](https://intrinio.com/real-time-multi-exchange), or [subscribe to a real-time options feed](https://intrinio.com/financial-market-data/options-data) and follow the instructions below.
 
@@ -412,7 +412,7 @@ class Summarize(threading.Thread):
 # Your config object MUST include the 'api_key' and 'provider', at a minimum
 config: Config = Config(
     api_key="API_KEY_HERE",
-    provider=Providers.OPRA,
+    provider=Providers.OPRA, # or Providers.OPTIONS_EDGE
     num_threads=8,
     symbols=["AAPL", "BRKB__230217C00300000"], # this is a static list of symbols (options contracts or option chains) that will automatically be subscribed to when the client starts
     log_level=LogLevel.INFO,
@@ -670,7 +670,7 @@ client = IntrinioRealtimeEquitiesClient(configuration)
 class Config:
     def __init__(self, apiKey : str, provider : Providers, numThreads : int = 4, logLevel : LogLevel = LogLevel.INFO, manualIpAddress : str = None, symbols : set[str] = None):
         self.apiKey : str = apiKey
-        self.provider : Providers = provider # Providers.OPRA or Providers.MANUAL
+        self.provider : Providers = provider # Providers.OPRA or Providers.OPTIONS_EDGE or Providers.MANUAL
         self.numThreads : int = numThreads # At least 4 threads are recommended for 'FIREHOSE' connections
         self.manualIpAddress : str = manualIpAddress
         self.symbols : list[str] = symbols # Static list of symbols to use
