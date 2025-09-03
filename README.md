@@ -1,5 +1,5 @@
 # intrinio realtime python sdk
-SDK for working with Intrinio's realtime OPRA, IEX, delayed SIP, CBOE One, or NASDAQ Basic prices feeds.  Get a comprehensive view with increased market volume and enjoy minimized exchange and per user fees.
+SDK for working with Intrinio's realtime OPRA, Options Edge, IEX, delayed SIP, CBOE One, Equities Edge, or NASDAQ Basic prices feeds.  Get a comprehensive view with increased market volume and enjoy minimized exchange and per user fees.
 
 [Intrinio](https://intrinio.com/) provides real-time stock and option prices via a two-way WebSocket connection. To get started, [subscribe to a real-time equity feed](https://intrinio.com/real-time-multi-exchange), or [subscribe to a real-time options feed](https://intrinio.com/financial-market-data/options-data) and follow the instructions below.
 
@@ -96,7 +96,7 @@ class Summarize(threading.Thread):
 
 configuration = {
     'api_key': 'API_KEY_HERE',
-    'provider': 'IEX' # 'REALTIME' (IEX), or 'IEX', or 'DELAYED_SIP', or 'NASDAQ_BASIC', or 'CBOE_ONE'
+    'provider': 'IEX' # 'REALTIME' (IEX), or 'IEX', or 'DELAYED_SIP', or 'NASDAQ_BASIC', or 'CBOE_ONE' or 'EQUITIES_EDGE'
     # ,'delayed': True # Add this if you have realtime (nondelayed) access and want to force delayed mode. If you only have delayed mode access, this is redundant.
     # ,'replay_date': datetime.date.today() - datetime.timedelta(days=1)  # needed for ReplayClient. The date to replay.
     # ,'with_simulated_delay': False  # needed for ReplayClient. This plays back the events at the same rate they happened in market.
@@ -171,6 +171,7 @@ sys.exit(0)
   *    **`NASDAQ_BASIC`** - NASDAQ Basic in the NASDAQ_BASIC provider.
   *    **`IEX`** - From the IEX exchange in the REALTIME provider.
   *    **`CBOE_ONE`** - From the CBOE One exchanges provider.
+  *    **`EQUITIES_EDGE`** - From the Equities Edge provider.
 * **market_center** - Provides the market center
 * **condition** - Provides the condition
 
@@ -201,6 +202,7 @@ sys.exit(0)
   *    **`NASDAQ_BASIC`** - NASDAQ Basic in the NASDAQ_BASIC provider.
   *    **`IEX`** - From the IEX exchange in the REALTIME provider.
   *    **`CBOE_ONE`** - From the CBOE One exchanges provider.
+  *    **`EQUITIES_EDGE`** - From the Equities Edge provider.
 * **market_center** - Provides the market center
 * **condition** - Provides the condition
 
@@ -410,7 +412,7 @@ class Summarize(threading.Thread):
 # Your config object MUST include the 'api_key' and 'provider', at a minimum
 config: Config = Config(
     api_key="API_KEY_HERE",
-    provider=Providers.OPRA,
+    provider=Providers.OPRA, # or Providers.OPTIONS_EDGE
     num_threads=8,
     symbols=["AAPL", "BRKB__230217C00300000"], # this is a static list of symbols (options contracts or option chains) that will automatically be subscribed to when the client starts
     log_level=LogLevel.INFO,
@@ -633,7 +635,7 @@ You will receive your Intrinio API Key after [creating an account](https://intri
 
 `client = IntrinioRealtimeEquitiesClient(configuration)` - Creates an Intrinio Realtime client
 * **Parameter** `configuration.api_key`: Your Intrinio API Key
-* **Parameter** `configuration.provider`: The real-time data provider to use ("IEX"/"REALTIME", or "DELAYED_SIP", or "NASDAQ_BASIC", or "CBOE_ONE")
+* **Parameter** `configuration.provider`: The real-time data provider to use ("IEX"/"REALTIME", or "DELAYED_SIP", or "NASDAQ_BASIC", or "CBOE_ONE", or "EQUITIES_EDGE")
 * **Parameter** `configuration.on_quote(quote, backlog)`: A function that handles received quotes. `backlog` is an integer representing the approximate size of the queue of unhandled quote/trade events.
 * **Parameter** `configuration.on_trade(quote, backlog)`: A function that handles received trades. `backlog` is an integer representing the approximate size of the queue of unhandled quote/trade events.
 * **Parameter** `configuration.logger`: (optional) A Python Logger instance to use for logging
@@ -654,7 +656,7 @@ def on_trade(trade, backlog):
     
 configuration = {
     'api_key': '',
-    'provider': 'IEX',  # REALTIME (IEX) or IEX or CBOE_ONE or DELAYED_SIP or NASDAQ_BASIC
+    'provider': 'IEX',  # REALTIME (IEX) or IEX or CBOE_ONE or EQUITIES_EDGE or DELAYED_SIP or NASDAQ_BASIC
     #'delayed': True, # Add this if you have realtime (nondelayed) access and want to force delayed mode. If you only have delayed mode access, this is redundant.
     'on_quote': on_quote,
     'on_trade': on_trade
@@ -668,7 +670,7 @@ client = IntrinioRealtimeEquitiesClient(configuration)
 class Config:
     def __init__(self, apiKey : str, provider : Providers, numThreads : int = 4, logLevel : LogLevel = LogLevel.INFO, manualIpAddress : str = None, symbols : set[str] = None):
         self.apiKey : str = apiKey
-        self.provider : Providers = provider # Providers.OPRA or Providers.MANUAL
+        self.provider : Providers = provider # Providers.OPRA or Providers.OPTIONS_EDGE or Providers.MANUAL
         self.numThreads : int = numThreads # At least 4 threads are recommended for 'FIREHOSE' connections
         self.manualIpAddress : str = manualIpAddress
         self.symbols : list[str] = symbols # Static list of symbols to use
@@ -727,7 +729,7 @@ def on_trade(trade, backlog):
     
 options = {
     'api_key': '',
-    'provider': 'IEX',  # REALTIME (IEX) or IEX or CBOE_ONE or DELAYED_SIP or NASDAQ_BASIC
+    'provider': 'IEX',  # REALTIME (IEX) or IEX or CBOE_ONE or EQUITIES_EDGE or DELAYED_SIP or NASDAQ_BASIC
     'replay_date': datetime.date.today(),
     'with_simulated_delay': False,  # This plays back the events at the same rate they happened in market.
     'delete_file_when_done': True,

@@ -29,8 +29,9 @@ class IntrinioRealtimeConstants:
     NASDAQ_BASIC = "NASDAQ_BASIC"
     IEX = "IEX"
     CBOE_ONE = "CBOE_ONE"
-    PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC, IEX, CBOE_ONE]
-    SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX, CBOE_ONE]
+    EQUITIES_EDGE = "EQUITIES_EDGE"
+    PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC, IEX, CBOE_ONE, EQUITIES_EDGE]
+    SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX, CBOE_ONE, EQUITIES_EDGE]
     MAX_QUEUE_SIZE = 1000000
     EVENT_BUFFER_SIZE = 100
 
@@ -278,6 +279,8 @@ class FileParsingThread(threading.Thread):
                 return "nasdaq_basic"
             case IntrinioRealtimeConstants.CBOE_ONE:
                 return "cboe_one"
+            case IntrinioRealtimeConstants.EQUITIES_EDGE:
+                return "equities_edge"
             case _:
                 return "iex"
 
@@ -298,6 +301,8 @@ class FileParsingThread(threading.Thread):
                 return [IntrinioRealtimeConstants.NASDAQ_BASIC]
             case IntrinioRealtimeConstants.CBOE_ONE:
                 return [IntrinioRealtimeConstants.CBOE_ONE]
+            case IntrinioRealtimeConstants.EQUITIES_EDGE:
+                return [IntrinioRealtimeConstants.EQUITIES_EDGE]
             case _:
                 return []
 
@@ -447,6 +452,7 @@ class QuoteHandlingThread(threading.Thread):
             5: IntrinioRealtimeConstants.NASDAQ_BASIC,
             6: IntrinioRealtimeConstants.IEX,
             7: IntrinioRealtimeConstants.CBOE_ONE,
+            8: IntrinioRealtimeConstants.EQUITIES_EDGE
         }
 
     def parse_quote(self, quote_bytes, start_index=0):

@@ -45,6 +45,7 @@ def do_backoff(fn: Callable[[None], bool]):
 class Providers(IntEnum):
     OPRA = 1
     MANUAL = 2
+    OPTIONS_EDGE = 3
 
 @unique
 class LogLevel(IntEnum):
@@ -704,6 +705,8 @@ class IntrinioRealtimeOptionsClient:
     def __get_auth_url(self) -> str:
         if self.__provider == Providers.OPRA:
             return "https://realtime-options.intrinio.com/auth?api_key=" + self.__apiKey
+        elif self.__provider == Providers.OPTIONS_EDGE:
+            return "https://options-edge.intrinio.com/auth?api_key=" + self.__apiKey
         elif self.__provider == Providers.MANUAL:
             return "http://" + self.__manualIP + "/auth?api_key=" + self.__apiKey
         else:
@@ -713,6 +716,8 @@ class IntrinioRealtimeOptionsClient:
         delay: str = "&delayed=true" if self.__delayed else ""
         if self.__provider == Providers.OPRA:
             return "wss://realtime-options.intrinio.com/socket/websocket?vsn=1.0.0&token=" + token + delay
+        elif self.__provider == Providers.OPTIONS_EDGE:
+            return "wss://options-edge.intrinio.com/socket/websocket?vsn=1.0.0&token=" + token + delay
         elif self.__provider == Providers.MANUAL:
             return "ws://" + self.__manualIP + "/socket/websocket?vsn=1.0.0&token=" + token + delay
         else:

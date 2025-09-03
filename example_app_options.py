@@ -105,7 +105,7 @@ class Summarize(threading.Thread):
 # Your config object MUST include the 'api_key' and 'provider', at a minimum
 config: Config = Config(
     api_key="API_KEY_HERE",
-    provider=Providers.OPRA,
+    provider=Providers.OPRA, # or Providers.OPTIONS_EDGE
     num_threads=8,
     symbols=["AAPL", "BRKB__230217C00300000"], # this is a static list of symbols (options contracts or option chains) that will automatically be subscribed to when the client starts
     log_level=LogLevel.INFO,

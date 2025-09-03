@@ -25,14 +25,15 @@ UTP = "UTP"
 OTC = "OTC"
 IEX = "IEX"
 CBOE_ONE = "CBOE_ONE"
-PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC, IEX, CBOE_ONE]
-SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX, CBOE_ONE]
+EQUITIES_EDGE = "EQUITIES_EDGE"
+PROVIDERS = [REALTIME, MANUAL, DELAYED_SIP, NASDAQ_BASIC, IEX, CBOE_ONE, EQUITIES_EDGE]
+SUB_PROVIDERS = [NO_SUBPROVIDER, CTA_A, CTA_B, UTP, OTC, NASDAQ_BASIC, IEX, CBOE_ONE, EQUITIES_EDGE]
 MAX_QUEUE_SIZE = 250000
 DEBUGGING = not (sys.gettrace() is None)
 HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
 HEADER_MESSAGE_FORMAT_VALUE = "v2"
 HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
-HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv6.0.3"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv6.1.0"
 
 
 class EquitiesQuote:
@@ -184,6 +185,8 @@ class IntrinioRealtimeEquitiesClient:
             auth_url = "https://realtime-nasdaq-basic.intrinio.com/auth"
         elif self.provider == CBOE_ONE:
             auth_url = "https://cboe-one.intrinio.com/auth"
+        elif self.provider == EQUITIES_EDGE:
+            auth_url = "https://equities-edge.intrinio.com/auth"
         elif self.provider == MANUAL:
             auth_url = "http://" + self.ipaddress + "/auth"
 
@@ -213,6 +216,8 @@ class IntrinioRealtimeEquitiesClient:
             return "wss://realtime-nasdaq-basic.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
         elif self.provider == CBOE_ONE:
             return "wss://cboe-one.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
+        elif self.provider == EQUITIES_EDGE:
+            return "wss://equities-edge.intrinio.com/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
         elif self.provider == MANUAL:
             return "ws://" + self.ipaddress + "/socket/websocket?vsn=1.0.0&token=" + self.token + delayed_part
         else:
@@ -470,7 +475,8 @@ class EquitiesQuoteHandler(threading.Thread):
             4: OTC,
             5: NASDAQ_BASIC,
             6: IEX,
-            7: CBOE_ONE
+            7: CBOE_ONE,
+            8: EQUITIES_EDGE
         }
 
     def parse_quote(self, quote_bytes: bytes, start_index: int = 0) -> EquitiesQuote:
