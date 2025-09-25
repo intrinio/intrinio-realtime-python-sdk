@@ -147,6 +147,6 @@ intrinioRealtimeOptionsClient.join()
 # Use this to subscribe, dynamically, a list of specific option contracts or option chains.
 # intrinioRealtimeOptionsClient.join("GOOG__220408C02870000", "MSFT__220408C00315000", "AAPL__220414C00180000", "TSLA", "GE")
 
-time.sleep(60 * 60 * 8)
+time.sleep(60 * 60 * 24)
 # sigint, or ctrl+c, during the thread wait will also perform the same below code.
 on_kill_process(None, None)
