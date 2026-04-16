@@ -15,3 +15,4 @@ RUN pip install 'intrinio_sdk'
 
 CMD python example_app_equities.py
 #CMD python example_app_options.py
+#CMD python example_app_options_and_equities.py
