@@ -682,10 +682,13 @@ class IntrinioRealtimeOptionsClient:
         self.__data: queue.Queue = queue.Queue()
         self.__t_lock: threading.Lock = threading.Lock()
         self.__ws_lock: threading.Lock = threading.Lock()
-        self.__worker_threads: list[threading.Thread] = [threading.Thread(None,
-                                                                          _thread_fn,
-                                                                          args=[i, self.__data, on_trade, on_quote, on_refresh, on_unusual_activity],
-                                                                          daemon=True) for i in range(config.num_threads)]
+        self.__worker_threads: list[threading.Thread] = [threading.Thread(
+            group=None,
+            target=_thread_fn,
+            args=(i, self.__data, on_trade, on_quote, on_refresh, on_unusual_activity),
+            kwargs={},
+            daemon=True
+        ) for i in range(config.num_threads)]
         self.__socket_thread: threading.Thread = None
         self.__is_started: bool = False
         _log.setLevel(config.log_level)
@@ -833,7 +836,13 @@ class IntrinioRealtimeOptionsClient:
         token: str = self.__get_token()
         self.__ws_lock.acquire()
         try:
-            self.__socket_thread = threading.Thread = threading.Thread(None, self.__socket_start_fn, args=[token], daemon=True)
+            self.__socket_thread = threading.Thread(
+                group=None,
+                target=self.__socket_start_fn,
+                args=(token,),
+                kwargs={},
+                daemon=True
+            )
         finally:
             self.__ws_lock.release()
         self.__socket_thread.start()
