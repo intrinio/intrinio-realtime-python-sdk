@@ -10,6 +10,7 @@ from collections.abc import Callable
 from enum import IntEnum, unique
 
 _SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
+_CONNECT_TIMEOUT_SECONDS = 30
 _EMPTY_STRING = ""
 _OPTIONS_TRADE_MESSAGE_SIZE = 72  # 61 used + 11 pad
 _OPTIONS_QUOTE_MESSAGE_SIZE = 52  # 48 used + 4 pad
@@ -33,13 +34,18 @@ def log(message: str):
 
 def do_backoff(fn: Callable[[None], bool]):
     i: int = 0
-    backoff: int = _SELF_HEAL_BACKOFFS[i]
-    success: bool = fn()
-    while (not success):
-        time.sleep(backoff)
+    while not _stopFlag.is_set():
+        try:
+            if fn():
+                return
+        except Exception as e:
+            _log.warning("Websocket - Attempt failed: {0}".format(e))
+        if _stopFlag.is_set():
+            return
+        backoff: int = _SELF_HEAL_BACKOFFS[i]
         i = min(i + 1, len(_SELF_HEAL_BACKOFFS) - 1)
-        backoff = _SELF_HEAL_BACKOFFS[i]
-        success = fn()
+        if _stopFlag.wait(timeout=backoff):
+            return
 
 @unique
 class Providers(IntEnum):
@@ -300,8 +306,25 @@ class _WebSocket(websocket.WebSocketApp):
         self.__is_reconnecting: bool = False
         self.__last_reset: float = time.time()
         self.isReady: bool = False
+        self.__handshake_event: threading.Event = threading.Event()
+        self.__backoff_index: int = 0
+
+    def __close_leftover_sock(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+        try:
+            sock = getattr(self, "sock", None)
+            if sock:
+                sock.close()
+            self.sock = None
+        except Exception:
+            pass
 
     def __on_open(self, ws):
+        self.__handshake_event.set()
+        self.__backoff_index = 0
         _log.info("Websocket - Connected")
         self.__wsLock.acquire()
         try:
@@ -325,26 +348,11 @@ class _WebSocket(websocket.WebSocketApp):
                         _log.info("Websocket - Joining channel: {0}".format(symbol))
                         self.send_binary(message)
 
-    def __try_reconnect(self) -> bool:
-        _log.info("Websocket - Reconnecting...")
-        if self.isReady:
-            return True
-        else:
-            with self.__wsLock:
-                self.__is_reconnecting = True
-            token: str = self.__get_token(None)
-            super().url = self.__get_url(token)
-            self.start()
-            return False
-
     def __on_close(self, ws, closeStatusCode, closeMsg):
+        _log.info("Websocket - Closed - {0}: {1}".format(closeStatusCode, closeMsg))
         self.__wsLock.acquire()
         try:
-            if (not self.__is_reconnecting):
-                _log.info("Websocket - Closed - {0}: {1}".format(closeStatusCode, closeMsg))
-                self.isReady = False
-                if (not _stopFlag.is_set()):
-                    do_backoff(self.__try_reconnect)
+            self.isReady = False
         finally:
             self.__wsLock.release()
 
@@ -388,7 +396,48 @@ class _WebSocket(websocket.WebSocketApp):
                 _log.error("Error received: {0}".format(data))
 
     def start(self):
-        super().run_forever(skip_utf8_validation=True)
+        while not _stopFlag.is_set():
+            self.__handshake_event.clear()
+            self.__wsLock.acquire()
+            try:
+                self.isReady = False
+            finally:
+                self.__wsLock.release()
+            self.__close_leftover_sock()
+
+            def watchdog():
+                if not self.__handshake_event.wait(_CONNECT_TIMEOUT_SECONDS):
+                    if _stopFlag.is_set():
+                        return
+                    _log.warning("Websocket - Connect timed out after {0}s".format(_CONNECT_TIMEOUT_SECONDS))
+                    self.__close_leftover_sock()
+
+            threading.Thread(target=watchdog, daemon=True).start()
+            try:
+                super().run_forever(skip_utf8_validation=True)
+            except Exception as e:
+                _log.warning("Websocket - Attempt failed: {0}".format(e))
+
+            self.__wsLock.acquire()
+            try:
+                self.isReady = False
+            finally:
+                self.__wsLock.release()
+
+            if _stopFlag.is_set():
+                return
+
+            _log.info("Websocket - Reconnecting...")
+            backoff: int = _SELF_HEAL_BACKOFFS[self.__backoff_index]
+            self.__backoff_index = min(self.__backoff_index + 1, len(_SELF_HEAL_BACKOFFS) - 1)
+            if _stopFlag.wait(timeout=backoff):
+                return
+            try:
+                token: str = self.__get_token(None)
+                if token:
+                    super().url = self.__get_url(token)
+            except Exception as e:
+                _log.warning("Websocket - Reconnect attempt failed: {0}".format(e))
         # super().run_forever(ping_interval = 5, ping_timeout = 2, skip_utf8_validation = True)
 
     def stop(self):

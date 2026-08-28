@@ -11,6 +11,7 @@ from enum import IntEnum, unique
 from typing import Optional, Dict, Any
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
+CONNECT_TIMEOUT_SECONDS = 30
 _EMPTY_STRING = ""
 _NAN = float("NAN")
 REALTIME = "REALTIME"
@@ -170,6 +171,7 @@ class IntrinioRealtimeEquitiesClient:
         self.joined_channels = set()
         self.last_queue_warning_time = 0
         self.last_self_heal_backoff = -1
+        self._stop_event = threading.Event()
         self.quote_handler.start()
 
     def auth_url(self) -> str:
@@ -227,33 +229,43 @@ class IntrinioRealtimeEquitiesClient:
         self.last_self_heal_backoff += 1
         i = min(self.last_self_heal_backoff, len(SELF_HEAL_BACKOFFS) - 1)
         backoff = SELF_HEAL_BACKOFFS[i]
-        time.sleep(backoff)
+        self._stop_event.wait(timeout=backoff)
 
     def connect(self):
-        connected = False
-        while not connected:
+        self._stop_event.clear()
+        if self.quote_receiver is not None and self.quote_receiver.is_alive() and self.quote_receiver.enabled:
+            if self.ws:
+                try:
+                    self.ws.close()
+                except Exception:
+                    pass
+            return
+
+        while not self._stop_event.is_set():
             try:
                 self.logger.info("Connecting...")
                 self.ready = False
                 self.joined_channels = set()
-
-                if self.ws:
-                    self.ws.close()
-                    time.sleep(3)
-
                 self.refresh_token()
                 self.refresh_websocket()
-                connected = True
+                return
             except Exception as e:
                 self.logger.error(f"Cannot connect: {repr(e)}")
                 self.do_backoff()
 
     def disconnect(self):
+        self._stop_event.set()
         self.ready = False
         self.joined_channels = set()
 
+        if self.quote_receiver:
+            self.quote_receiver.enabled = False
+
         if self.ws:
-            self.ws.close()
+            try:
+                self.ws.close()
+            except Exception:
+                pass
             time.sleep(1)
 
     def refresh_token(self):
@@ -270,6 +282,8 @@ class IntrinioRealtimeEquitiesClient:
         self.logger.info("Authentication successful!")
 
     def refresh_websocket(self):
+        if self.quote_receiver is not None and self.quote_receiver.is_alive():
+            return
         self.quote_receiver = EquitiesQuoteReceiver(self)
         self.quote_receiver.start()
 
@@ -368,18 +382,63 @@ class EquitiesQuoteReceiver(threading.Thread):
         self.continuation_lock: threading.Lock = threading.Lock()
 
     def run(self):
-        self.client.ws = websocket.WebSocketApp(
-            self.client.websocket_url(),
-            header={HEADER_MESSAGE_FORMAT_KEY: HEADER_MESSAGE_FORMAT_VALUE, HEADER_CLIENT_INFORMATION_KEY: HEADER_CLIENT_INFORMATION_VALUE},
-            on_open=self.on_open,
-            on_close=self.on_close,
-            on_message=self.on_message,
-            on_cont_message=self.on_cont_message,
-            on_error=self.on_error
-        )
+        while self.enabled and not self.client._stop_event.is_set():
+            handshake_event = threading.Event()
+            app = websocket.WebSocketApp(
+                self.client.websocket_url(),
+                header={HEADER_MESSAGE_FORMAT_KEY: HEADER_MESSAGE_FORMAT_VALUE, HEADER_CLIENT_INFORMATION_KEY: HEADER_CLIENT_INFORMATION_VALUE},
+                on_open=self.on_open,
+                on_close=self.on_close,
+                on_message=self.on_message,
+                on_cont_message=self.on_cont_message,
+                on_error=self.on_error
+            )
+            self.client.ws = app
+            original_on_open = app.on_open
 
-        self.client.logger.debug("QuoteReceiver ready")
-        self.client.ws.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
+            def on_open_with_timeout(ws, *args):
+                handshake_event.set()
+                if original_on_open:
+                    original_on_open(ws, *args)
+
+            app.on_open = on_open_with_timeout
+
+            def watchdog():
+                if not handshake_event.wait(CONNECT_TIMEOUT_SECONDS):
+                    if not self.enabled or self.client._stop_event.is_set():
+                        return
+                    self.client.logger.warning(f"Websocket connect timed out after {CONNECT_TIMEOUT_SECONDS}s")
+                    try:
+                        app.close()
+                    except Exception:
+                        pass
+                    try:
+                        if app.sock:
+                            app.sock.close()
+                    except Exception:
+                        pass
+
+            self.client.logger.debug("QuoteReceiver ready")
+            threading.Thread(target=watchdog, daemon=True).start()
+            try:
+                app.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
+            except Exception as e:
+                self.client.logger.error(f"Websocket ERROR: {repr(e)}")
+
+            self.client.ready = False
+            if not self.enabled or self.client._stop_event.is_set():
+                break
+
+            self.client.logger.info("Websocket closed, reconnecting...")
+            self.client.do_backoff()
+            if not self.enabled or self.client._stop_event.is_set():
+                break
+            try:
+                self.client.refresh_token()
+            except Exception as e:
+                self.client.logger.error(f"Cannot connect: {repr(e)}")
+                continue
+
         self.client.logger.debug("QuoteReceiver exiting")
 
     def on_open(self, ws):
@@ -392,7 +451,10 @@ class EquitiesQuoteReceiver(threading.Thread):
     def on_error(self, ws, error, *args):
         try:
             self.client.logger.error(f"Websocket ERROR: {error}")
-            self.client.connect()
+            try:
+                ws.close()
+            except Exception:
+                pass
         except Exception as e:
             self.client.logger.error(f"Error in on_error handler: {repr(e)}; {repr(error)}")
             raise e
