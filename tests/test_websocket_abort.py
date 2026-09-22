@@ -1,0 +1,102 @@
+import socket
+import threading
+import time
+import unittest
+from unittest.mock import Mock, call
+
+from intriniorealtime._websocket import abort_websocket_app, should_abort_handshake
+
+
+class FakeWebSocket:
+    def __init__(self, raw, connected=False):
+        self.sock = raw
+        self.connected = connected
+
+    def close(self, **kwargs):
+        if not self.connected:
+            return
+        self.shutdown()
+
+    def shutdown(self):
+        if self.sock:
+            self.sock.close()
+            self.sock = None
+            self.connected = False
+
+
+class FakeApp:
+    def __init__(self, ws):
+        self.sock = ws
+        self.keep_running = True
+
+    def close(self, **kwargs):
+        self.keep_running = False
+        if self.sock:
+            self.sock.close()
+            self.sock = None
+
+
+class AbortWebsocketAppTests(unittest.TestCase):
+    def test_shutdowns_raw_socket_when_websocket_is_not_connected(self):
+        raw = Mock()
+        ws = FakeWebSocket(raw, connected=False)
+        app = FakeApp(ws)
+
+        abort_websocket_app(app)
+
+        self.assertFalse(app.keep_running)
+        raw.shutdown.assert_called_with(socket.SHUT_RDWR)
+        raw.close.assert_called()
+        self.assertEqual(raw.mock_calls[0], call.shutdown(socket.SHUT_RDWR))
+        self.assertEqual(raw.mock_calls[1], call.close())
+        self.assertIsNone(app.sock)
+        self.assertIsNone(ws.sock)
+        self.assertFalse(ws.connected)
+
+    def test_noop_on_none(self):
+        abort_websocket_app(None)
+
+    def test_sets_keep_running_false_without_sock(self):
+        app = FakeApp(None)
+        abort_websocket_app(app)
+        self.assertFalse(app.keep_running)
+
+
+class ShouldAbortHandshakeTests(unittest.TestCase):
+    def test_true_on_timeout_for_current_generation(self):
+        handshake = threading.Event()
+        stop = threading.Event()
+        self.assertTrue(should_abort_handshake(handshake, stop, 1, 1, 0.01))
+
+    def test_false_when_handshake_completes(self):
+        handshake = threading.Event()
+        handshake.set()
+        stop = threading.Event()
+        self.assertFalse(should_abort_handshake(handshake, stop, 1, 1, 0.01))
+
+    def test_false_for_stale_generation(self):
+        handshake = threading.Event()
+        stop = threading.Event()
+        self.assertFalse(should_abort_handshake(handshake, stop, 1, 2, 0.01))
+
+    def test_true_when_stopped_and_handshake_timed_out(self):
+        handshake = threading.Event()
+        stop = threading.Event()
+        stop.set()
+        self.assertTrue(should_abort_handshake(handshake, stop, 1, 1, 0.01))
+
+    def test_callable_current_generation_is_read_after_wait(self):
+        handshake = threading.Event()
+        stop = threading.Event()
+        state = {"g": 1}
+
+        def bump():
+            time.sleep(0.02)
+            state["g"] = 2
+
+        threading.Thread(target=bump, daemon=True).start()
+        self.assertFalse(should_abort_handshake(handshake, stop, 1, lambda: state["g"], 0.05))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -9,8 +9,11 @@ import struct
 from collections.abc import Callable
 from enum import IntEnum, unique
 
+from ._websocket import abort_websocket_app, clear_socket_timeout, should_abort_handshake
+
 _SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 _CONNECT_TIMEOUT_SECONDS = 30
+_STABLE_SESSION_SECONDS = 1.0
 _EMPTY_STRING = ""
 _OPTIONS_TRADE_MESSAGE_SIZE = 72  # 61 used + 11 pad
 _OPTIONS_QUOTE_MESSAGE_SIZE = 52  # 48 used + 4 pad
@@ -32,19 +35,20 @@ _log.addHandler(_logHandler)
 def log(message: str):
     _log.info(message)
 
-def do_backoff(fn: Callable[[None], bool]):
+def do_backoff(fn: Callable[[], bool], stop_flag: threading.Event = None):
+    flag: threading.Event = stop_flag if stop_flag is not None else _stopFlag
     i: int = 0
-    while not _stopFlag.is_set():
+    while not flag.is_set():
         try:
             if fn():
                 return
         except Exception as e:
             _log.warning("Websocket - Attempt failed: {0}".format(e))
-        if _stopFlag.is_set():
+        if flag.is_set():
             return
         backoff: int = _SELF_HEAL_BACKOFFS[i]
         i = min(i + 1, len(_SELF_HEAL_BACKOFFS) - 1)
-        if _stopFlag.wait(timeout=backoff):
+        if flag.wait(timeout=backoff):
             return
 
 @unique
@@ -281,22 +285,23 @@ class _WebSocket(websocket.WebSocketApp):
                  ws_url: str,
                  ws_lock: threading.Lock,
                  worker_threads: list[threading.Thread],
-                 get_channels: Callable[[None], set[tuple[str, bool]]],
-                 get_token: Callable[[None], str],
+                 get_channels: Callable[[], set],
+                 get_token: Callable[[], str],
                  get_url: Callable[[str], str],
                  use_on_trade: bool,
                  use_on_quote: bool,
                  use_on_refresh: bool,
                  use_on_ua: bool,
-                 data_queue: queue.Queue):
+                 data_queue: queue.Queue,
+                 stop_flag: threading.Event):
         super().__init__(ws_url, on_open=self.__on_open, on_close=self.__on_close, on_data=self.__on_data, on_error=self.__on_error)
         self.__wsLock: threading.Lock = ws_lock
         self.__continuation_queue = queue.Queue(100)
         self.__continuation_lock: threading.Lock = threading.Lock()
         self.__currently_continuing: bool = False
         self.__worker_threads: list[threading.Thread] = worker_threads
-        self.__get_channels: Callable[[None], set[tuple[str, bool]]] = get_channels
-        self.__get_token: Callable[[None], str] = get_token
+        self.__get_channels: Callable[[], set] = get_channels
+        self.__get_token: Callable[[], str] = get_token
         self.__get_url: Callable[[str], str] = get_url
         self.__use_on_trade: bool = use_on_trade
         self.__use_on_quote: bool = use_on_quote
@@ -308,23 +313,28 @@ class _WebSocket(websocket.WebSocketApp):
         self.isReady: bool = False
         self.__handshake_event: threading.Event = threading.Event()
         self.__backoff_index: int = 0
+        self.__connect_generation: int = 0
+        self.__session_opened: bool = False
+        self.__session_opened_at: float = 0.0
+        self.__stop_flag: threading.Event = stop_flag
 
     def __close_leftover_sock(self):
-        try:
-            self.close()
-        except Exception:
-            pass
-        try:
-            sock = getattr(self, "sock", None)
-            if sock:
-                sock.close()
-            self.sock = None
-        except Exception:
-            pass
+        abort_websocket_app(self)
+
+    def __clear_continuation_state(self):
+        with self.__continuation_lock:
+            self.__currently_continuing = False
+            while True:
+                try:
+                    self.__continuation_queue.get_nowait()
+                except queue.Empty:
+                    break
 
     def __on_open(self, ws):
         self.__handshake_event.set()
-        self.__backoff_index = 0
+        self.__session_opened = True
+        self.__session_opened_at = time.time()
+        clear_socket_timeout(self)
         _log.info("Websocket - Connected")
         self.__wsLock.acquire()
         try:
@@ -396,8 +406,14 @@ class _WebSocket(websocket.WebSocketApp):
                 _log.error("Error received: {0}".format(data))
 
     def start(self):
-        while not _stopFlag.is_set():
-            self.__handshake_event.clear()
+        websocket.setdefaulttimeout(_CONNECT_TIMEOUT_SECONDS)
+        while not self.__stop_flag.is_set():
+            handshake_event = threading.Event()
+            self.__handshake_event = handshake_event
+            self.__connect_generation += 1
+            generation = self.__connect_generation
+            self.__session_opened = False
+            self.__clear_continuation_state()
             self.__wsLock.acquire()
             try:
                 self.isReady = False
@@ -405,16 +421,23 @@ class _WebSocket(websocket.WebSocketApp):
                 self.__wsLock.release()
             self.__close_leftover_sock()
 
-            def watchdog():
-                if not self.__handshake_event.wait(_CONNECT_TIMEOUT_SECONDS):
-                    if _stopFlag.is_set():
-                        return
+            def watchdog(this_generation=generation, handshake_event=handshake_event):
+                if should_abort_handshake(
+                    handshake_event,
+                    self.__stop_flag,
+                    this_generation,
+                    lambda: self.__connect_generation,
+                    _CONNECT_TIMEOUT_SECONDS,
+                ):
                     _log.warning("Websocket - Connect timed out after {0}s".format(_CONNECT_TIMEOUT_SECONDS))
                     self.__close_leftover_sock()
 
             threading.Thread(target=watchdog, daemon=True).start()
+            if self.__stop_flag.is_set():
+                abort_websocket_app(self)
+                return
             try:
-                super().run_forever(skip_utf8_validation=True)
+                self.run_forever(skip_utf8_validation=True)
             except Exception as e:
                 _log.warning("Websocket - Attempt failed: {0}".format(e))
 
@@ -424,24 +447,40 @@ class _WebSocket(websocket.WebSocketApp):
             finally:
                 self.__wsLock.release()
 
-            if _stopFlag.is_set():
+            if self.__stop_flag.is_set():
                 return
 
             _log.info("Websocket - Reconnecting...")
-            backoff: int = _SELF_HEAL_BACKOFFS[self.__backoff_index]
-            self.__backoff_index = min(self.__backoff_index + 1, len(_SELF_HEAL_BACKOFFS) - 1)
-            if _stopFlag.wait(timeout=backoff):
+            skip_wait: bool = (
+                self.__session_opened
+                and (time.time() - self.__session_opened_at) >= _STABLE_SESSION_SECONDS
+            )
+            if skip_wait:
+                self.__backoff_index = 0
+            token_ready: bool = False
+            while not self.__stop_flag.is_set():
+                if skip_wait:
+                    skip_wait = False
+                else:
+                    backoff: int = _SELF_HEAL_BACKOFFS[self.__backoff_index]
+                    self.__backoff_index = min(self.__backoff_index + 1, len(_SELF_HEAL_BACKOFFS) - 1)
+                    if self.__stop_flag.wait(timeout=backoff):
+                        return
+                try:
+                    token: str = self.__get_token()
+                    if token:
+                        self.url = self.__get_url(token)
+                        token_ready = True
+                        break
+                    _log.warning("Websocket - Reconnect attempt failed: no token")
+                except Exception as e:
+                    _log.warning("Websocket - Reconnect attempt failed: {0}".format(e))
+            if not token_ready:
                 return
-            try:
-                token: str = self.__get_token(None)
-                if token:
-                    super().url = self.__get_url(token)
-            except Exception as e:
-                _log.warning("Websocket - Reconnect attempt failed: {0}".format(e))
         # super().run_forever(ping_interval = 5, ping_timeout = 2, skip_utf8_validation = True)
 
     def stop(self):
-        super().close()
+        abort_websocket_app(self)
 
     def send(self, message: str):
         super().send(message, websocket.ABNF.OPCODE_TEXT)
@@ -549,14 +588,16 @@ def _thread_fn(index: int, data: queue.Queue,
                on_trade: Callable[[OptionsTrade], None],
                on_quote: Callable[[OptionsQuote], None] = None,
                on_refresh: Callable[[OptionsRefresh], None] = None,
-               on_unusual_activity: Callable[[OptionsUnusualActivity], None] = None):
+               on_unusual_activity: Callable[[OptionsUnusualActivity], None] = None,
+               stop_flag: threading.Event = None):
+    flag: threading.Event = stop_flag if stop_flag is not None else _stopFlag
     _log.debug("Starting worker thread {0}".format(index))
     datum: bytes = None
     count: int = 0
     start_index: int = 1
     msg_type: int = 0
     message: bytes = None
-    while not _stopFlag.is_set():
+    while not flag.is_set():
         try:
             datum = data.get(True, 1.0)
             count = datum[0]
@@ -731,16 +772,26 @@ class IntrinioRealtimeOptionsClient:
         self.__data: queue.Queue = queue.Queue()
         self.__t_lock: threading.Lock = threading.Lock()
         self.__ws_lock: threading.Lock = threading.Lock()
-        self.__worker_threads: list[threading.Thread] = [threading.Thread(
-            group=None,
-            target=_thread_fn,
-            args=(i, self.__data, on_trade, on_quote, on_refresh, on_unusual_activity),
-            kwargs={},
-            daemon=True
-        ) for i in range(config.num_threads)]
+        self.__on_trade = on_trade
+        self.__on_quote = on_quote
+        self.__on_refresh = on_refresh
+        self.__on_unusual_activity = on_unusual_activity
+        self.__num_threads: int = config.num_threads
+        self._stop_event: threading.Event = threading.Event()
+        self._stop_generation: int = 0
+        self.__worker_threads: list[threading.Thread] = self.__make_worker_threads()
         self.__socket_thread: threading.Thread = None
         self.__is_started: bool = False
         _log.setLevel(config.log_level)
+
+    def __make_worker_threads(self) -> list[threading.Thread]:
+        return [threading.Thread(
+            group=None,
+            target=_thread_fn,
+            args=(i, self.__data, self.__on_trade, self.__on_quote, self.__on_refresh, self.__on_unusual_activity, self._stop_event),
+            kwargs={},
+            daemon=True
+        ) for i in range(self.__num_threads)]
 
     def __all_ready(self) -> bool:
         self.__ws_lock.acquire()
@@ -799,7 +850,7 @@ class IntrinioRealtimeOptionsClient:
         self.__t_lock.acquire()
         try:
             if ((time.time() - self.__token[1]) > (60 * 60 * 24)):  # 60sec/min * 60min/hr * 24hrs = 1 day
-                do_backoff(self.__try_set_token)
+                do_backoff(self.__try_set_token, self._stop_event)
             return self.__token[0]
         finally:
             self.__t_lock.release()
@@ -816,22 +867,28 @@ class IntrinioRealtimeOptionsClient:
             message[0] = 74  # join code
             message[1] = _get_option_mask(self.__use_on_trade, self.__use_on_quote, self.__use_on_refresh, self.__use_on_unusual_activity)
             message[2:] = symbol_bytes
-            if self.__webSocket.isReady:
+            ws = self.__webSocket
+            if ws is not None and ws.isReady:
                 _log.info("Websocket - Joining channel: {0}".format(transformed_symbol))
-                self.__webSocket.send_binary(message)
+                ws.send_binary(message)
 
-    def __leave(self, symbol: str):
+    def __leave(self, symbol: str, forget: bool = True):
         transformed_symbol: str = _transform_contract_to_new(symbol)
-        if transformed_symbol in self.__channels:
-            self.__channels.remove(transformed_symbol)
-            symbol_bytes = bytes(transformed_symbol, 'utf-8')
-            message: bytes = bytearray(len(symbol_bytes) + 2)
-            message[0] = 76  # leave code
-            message[1] = _get_option_mask(self.__use_on_trade, self.__use_on_quote, self.__use_on_refresh, self.__use_on_unusual_activity)
-            message[2:] = symbol_bytes
-            if self.__webSocket.isReady:
+        if transformed_symbol not in self.__channels:
+            return
+        symbol_bytes = bytes(transformed_symbol, 'utf-8')
+        message: bytes = bytearray(len(symbol_bytes) + 2)
+        message[0] = 76  # leave code
+        message[1] = _get_option_mask(self.__use_on_trade, self.__use_on_quote, self.__use_on_refresh, self.__use_on_unusual_activity)
+        message[2:] = symbol_bytes
+        try:
+            ws = self.__webSocket
+            if ws is not None and ws.isReady:
                 _log.info("Websocket - Leaving channel: {0}".format(transformed_symbol))
-                self.__webSocket.send_binary(message)
+                ws.send_binary(message)
+        finally:
+            if forget:
+                self.__channels.discard(transformed_symbol)
 
     def join(self, *symbols):
         if self.__is_started:
@@ -864,6 +921,9 @@ class IntrinioRealtimeOptionsClient:
             self.__leave("$FIREHOSE")
 
     def __socket_start_fn(self, token: str):
+        if not token:
+            _log.error("Websocket - Missing token")
+            return
         _log.info("Websocket - Connecting...")
         ws_url: str = self.__get_web_socket_url(token)
         self.__webSocket = _WebSocket(ws_url,
@@ -876,45 +936,95 @@ class IntrinioRealtimeOptionsClient:
                                       self.__use_on_quote,
                                       self.__use_on_refresh,
                                       self.__use_on_unusual_activity,
-                                      self.__data)
+                                      self.__data,
+                                      self._stop_event)
         self.__webSocket.start()
 
     def start(self):
         if (not (self.__use_on_trade or self.__use_on_quote or self.__use_on_refresh or self.__use_on_unusual_activity)):
             raise ValueError("You must set at least one callback method before starting client")
-        token: str = self.__get_token()
-        self.__ws_lock.acquire()
-        try:
-            self.__socket_thread = threading.Thread(
-                group=None,
-                target=self.__socket_start_fn,
-                args=(token,),
-                kwargs={},
-                daemon=True
-            )
-        finally:
-            self.__ws_lock.release()
-        self.__socket_thread.start()
-        self.__is_started = True
+        if (self.__is_started
+                and self.__socket_thread is not None
+                and self.__socket_thread.is_alive()
+                and not self._stop_event.is_set()):
+            return
+        stop_generation = self._stop_generation
+        while True:
+            leftover = self.__socket_thread
+            if leftover is not None and leftover.is_alive():
+                abort_websocket_app(self.__webSocket)
+                leftover.join(timeout=_CONNECT_TIMEOUT_SECONDS + 1)
+                if leftover.is_alive():
+                    if self._stop_generation != stop_generation:
+                        return
+                    continue
+            if self._stop_generation != stop_generation:
+                return
+            self._stop_event = threading.Event()
+            self.__worker_threads = self.__make_worker_threads()
+            token: str = self.__get_token()
+            if self._stop_event.is_set():
+                return
+            if not token:
+                if self._stop_event.wait(timeout=_SELF_HEAL_BACKOFFS[0]):
+                    return
+                continue
+            self.__ws_lock.acquire()
+            try:
+                self.__socket_thread = threading.Thread(
+                    group=None,
+                    target=self.__socket_start_fn,
+                    args=(token,),
+                    kwargs={},
+                    daemon=True
+                )
+            finally:
+                self.__ws_lock.release()
+            self.__socket_thread.start()
+            self.__is_started = True
+            return
 
     def stop(self):
         _log.info("Stopping...")
-        if len(self.__channels) > 0:
-            self.leave()
-        time.sleep(1.0)
-        self.__ws_lock.acquire()
+        self._stop_generation += 1
+        self._stop_event.set()
         try:
-            self.__webSocket.isReady = False
+            ws = self.__webSocket
+            if ws is not None:
+                try:
+                    sock = getattr(ws, "sock", None)
+                    if sock is not None:
+                        sock.settimeout(1)
+                except Exception:
+                    pass
+            if len(self.__channels) > 0:
+                channels: set[str] = self.__channels.copy()
+                for symbol in channels:
+                    try:
+                        self.__leave(symbol, forget=False)
+                    except Exception as e:
+                        _log.warning("Websocket - Leave failed: {0}".format(e))
+                        break
+            time.sleep(1.0)
         finally:
-            self.__ws_lock.release()
-        _stopFlag.set()
-        self.__webSocket.stop()
-        for i in range(len(self.__worker_threads)):
-            self.__worker_threads[i].join()
-            _log.debug("Worker thread {0} joined".format(i))
-        self.__socket_thread.join()
-        _log.debug("Socket thread joined")
-        _log.info("Stopped")
+            self.__ws_lock.acquire()
+            try:
+                if self.__webSocket is not None:
+                    self.__webSocket.isReady = False
+            finally:
+                self.__ws_lock.release()
+            if self.__webSocket is not None:
+                self.__webSocket.stop()
+            for i in range(len(self.__worker_threads)):
+                worker = self.__worker_threads[i]
+                if worker.ident is not None:
+                    worker.join(timeout=_CONNECT_TIMEOUT_SECONDS + 1)
+                    _log.debug("Worker thread {0} joined".format(i))
+            if self.__socket_thread is not None and self.__socket_thread.ident is not None:
+                self.__socket_thread.join(timeout=_CONNECT_TIMEOUT_SECONDS + 1)
+                _log.debug("Socket thread joined")
+            self.__is_started = False
+            _log.info("Stopped")
 
     def get_stats(self) -> tuple[int, int, int]:
         return _dataMsgCount, _txtMsgCount, self.__data.qsize()

@@ -10,8 +10,11 @@ import wsaccel
 from enum import IntEnum, unique
 from typing import Optional, Dict, Any
 
+from ._websocket import abort_websocket_app, clear_socket_timeout, should_abort_handshake
+
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 CONNECT_TIMEOUT_SECONDS = 30
+STABLE_SESSION_SECONDS = 1.0
 _EMPTY_STRING = ""
 _NAN = float("NAN")
 REALTIME = "REALTIME"
@@ -234,19 +237,17 @@ class IntrinioRealtimeEquitiesClient:
     def connect(self):
         self._stop_event.clear()
         if self.quote_receiver is not None and self.quote_receiver.is_alive() and self.quote_receiver.enabled:
-            if self.ws:
-                try:
-                    self.ws.close()
-                except Exception:
-                    pass
             return
 
+        self.last_self_heal_backoff = -1
         while not self._stop_event.is_set():
             try:
                 self.logger.info("Connecting...")
                 self.ready = False
                 self.joined_channels = set()
                 self.refresh_token()
+                if self._stop_event.is_set():
+                    return
                 self.refresh_websocket()
                 return
             except Exception as e:
@@ -261,19 +262,25 @@ class IntrinioRealtimeEquitiesClient:
         if self.quote_receiver:
             self.quote_receiver.enabled = False
 
-        if self.ws:
-            try:
-                self.ws.close()
-            except Exception:
-                pass
-            time.sleep(1)
+        abort_websocket_app(self.ws)
+
+        receiver = self.quote_receiver
+        if receiver is not None:
+            receiver.join(timeout=CONNECT_TIMEOUT_SECONDS + 1)
+            if receiver.is_alive():
+                abort_websocket_app(self.ws)
+            else:
+                self.quote_receiver = None
+                self.ws = None
+        else:
+            self.ws = None
 
     def refresh_token(self):
         headers = {HEADER_CLIENT_INFORMATION_KEY: HEADER_CLIENT_INFORMATION_VALUE}
         if self.api_key:
-            response = requests.get(self.auth_url(), headers=headers)
+            response = requests.get(self.auth_url(), headers=headers, timeout=CONNECT_TIMEOUT_SECONDS)
         else:
-            response = requests.get(self.auth_url(), auth=(self.username, self.password), headers=headers)
+            response = requests.get(self.auth_url(), auth=(self.username, self.password), headers=headers, timeout=CONNECT_TIMEOUT_SECONDS)
 
         if response.status_code != 200:
             raise RuntimeError("Auth failed")
@@ -282,14 +289,24 @@ class IntrinioRealtimeEquitiesClient:
         self.logger.info("Authentication successful!")
 
     def refresh_websocket(self):
-        if self.quote_receiver is not None and self.quote_receiver.is_alive():
-            return
+        receiver = self.quote_receiver
+        if receiver is not None:
+            if receiver.is_alive():
+                if receiver.enabled:
+                    return
+                abort_websocket_app(self.ws)
+                receiver.join(timeout=CONNECT_TIMEOUT_SECONDS + 1)
+                if receiver.is_alive():
+                    abort_websocket_app(self.ws)
+                    raise RuntimeError("Previous quote receiver did not exit")
+            self.quote_receiver = None
+            self.ws = None
         self.quote_receiver = EquitiesQuoteReceiver(self)
         self.quote_receiver.start()
 
     def on_connect(self):
         self.ready = True
-        self.last_self_heal_backoff = -1
+        self.joined_channels = set()
         self.refresh_channels()
 
     def on_queue_full(self):
@@ -381,8 +398,20 @@ class EquitiesQuoteReceiver(threading.Thread):
         self.continuation_queue = queue.Queue(100)
         self.continuation_lock: threading.Lock = threading.Lock()
 
+    def _clear_continuation_state(self):
+        with self.continuation_lock:
+            while True:
+                try:
+                    self.continuation_queue.get_nowait()
+                except queue.Empty:
+                    break
+
     def run(self):
+        websocket.setdefaulttimeout(CONNECT_TIMEOUT_SECONDS)
+        generation = 0
         while self.enabled and not self.client._stop_event.is_set():
+            generation += 1
+            self._clear_continuation_state()
             handshake_event = threading.Event()
             app = websocket.WebSocketApp(
                 self.client.websocket_url(),
@@ -396,30 +425,36 @@ class EquitiesQuoteReceiver(threading.Thread):
             self.client.ws = app
             original_on_open = app.on_open
 
+            session_opened = False
+            session_opened_at = 0.0
+
             def on_open_with_timeout(ws, *args):
+                nonlocal session_opened, session_opened_at
+                session_opened = True
+                session_opened_at = time.time()
                 handshake_event.set()
+                clear_socket_timeout(app)
                 if original_on_open:
                     original_on_open(ws, *args)
 
             app.on_open = on_open_with_timeout
 
-            def watchdog():
-                if not handshake_event.wait(CONNECT_TIMEOUT_SECONDS):
-                    if not self.enabled or self.client._stop_event.is_set():
-                        return
+            def watchdog(this_generation=generation, handshake_event=handshake_event):
+                if should_abort_handshake(
+                    handshake_event,
+                    self.client._stop_event,
+                    this_generation,
+                    lambda: generation,
+                    CONNECT_TIMEOUT_SECONDS,
+                ):
                     self.client.logger.warning(f"Websocket connect timed out after {CONNECT_TIMEOUT_SECONDS}s")
-                    try:
-                        app.close()
-                    except Exception:
-                        pass
-                    try:
-                        if app.sock:
-                            app.sock.close()
-                    except Exception:
-                        pass
+                    abort_websocket_app(app)
 
             self.client.logger.debug("QuoteReceiver ready")
             threading.Thread(target=watchdog, daemon=True).start()
+            if not self.enabled or self.client._stop_event.is_set():
+                abort_websocket_app(app)
+                break
             try:
                 app.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
             except Exception as e:
@@ -430,14 +465,24 @@ class EquitiesQuoteReceiver(threading.Thread):
                 break
 
             self.client.logger.info("Websocket closed, reconnecting...")
-            self.client.do_backoff()
-            if not self.enabled or self.client._stop_event.is_set():
-                break
-            try:
-                self.client.refresh_token()
-            except Exception as e:
-                self.client.logger.error(f"Cannot connect: {repr(e)}")
-                continue
+            skip_wait = (
+                session_opened
+                and (time.time() - session_opened_at) >= STABLE_SESSION_SECONDS
+            )
+            if skip_wait:
+                self.client.last_self_heal_backoff = -1
+            while self.enabled and not self.client._stop_event.is_set():
+                if skip_wait:
+                    skip_wait = False
+                else:
+                    self.client.do_backoff()
+                if not self.enabled or self.client._stop_event.is_set():
+                    break
+                try:
+                    self.client.refresh_token()
+                    break
+                except Exception as e:
+                    self.client.logger.error(f"Cannot connect: {repr(e)}")
 
         self.client.logger.debug("QuoteReceiver exiting")
 
