@@ -88,7 +88,8 @@ class EquitiesReconnectTests(unittest.TestCase):
              patch("websocket.WebSocketApp.run_forever", fake_run_forever):
             receiver.run()
 
-        set_timeout.assert_called_with(CONNECT_TIMEOUT_SECONDS)
+        self.assertIn(((CONNECT_TIMEOUT_SECONDS,), {}), set_timeout.call_args_list)
+        set_timeout.assert_called_with(None)
         sock.settimeout.assert_called_with(None)
 
     def test_refresh_token_failure_backs_off_and_skips_socket_until_auth_succeeds(self):
@@ -256,6 +257,17 @@ class EquitiesReconnectTests(unittest.TestCase):
 
         self.assertEqual(run_count["n"], 2)
         self.assertEqual(seen_empty, [True, True])
+
+    def test_fragmented_message_is_reassembled_and_delivered(self):
+        client = _make_client()
+        receiver = EquitiesQuoteReceiver(client)
+        ws = Mock()
+        receiver.on_message = Mock()
+
+        receiver.on_cont_message(ws, b"abc", 0)
+        receiver.on_cont_message(ws, b"def", 1)
+
+        receiver.on_message.assert_called_once_with(ws, b"abcdef")
 
     def test_refresh_token_passes_timeout(self):
         client = _make_client()

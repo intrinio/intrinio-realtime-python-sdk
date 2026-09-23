@@ -10,7 +10,7 @@ import wsaccel
 from enum import IntEnum, unique
 from typing import Optional, Dict, Any
 
-from ._websocket import abort_websocket_app, clear_socket_timeout, should_abort_handshake
+from ._websocket import abort_websocket_app, run_forever_with_connect_timeout, should_abort_handshake
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 CONNECT_TIMEOUT_SECONDS = 30
@@ -407,7 +407,6 @@ class EquitiesQuoteReceiver(threading.Thread):
                     break
 
     def run(self):
-        websocket.setdefaulttimeout(CONNECT_TIMEOUT_SECONDS)
         generation = 0
         while self.enabled and not self.client._stop_event.is_set():
             generation += 1
@@ -433,7 +432,6 @@ class EquitiesQuoteReceiver(threading.Thread):
                 session_opened = True
                 session_opened_at = time.time()
                 handshake_event.set()
-                clear_socket_timeout(app)
                 if original_on_open:
                     original_on_open(ws, *args)
 
@@ -456,7 +454,11 @@ class EquitiesQuoteReceiver(threading.Thread):
                 abort_websocket_app(app)
                 break
             try:
-                app.run_forever(skip_utf8_validation=True)  # skip_utf8_validation for more performance
+                run_forever_with_connect_timeout(
+                    app,
+                    CONNECT_TIMEOUT_SECONDS,
+                    skip_utf8_validation=True,
+                )  # skip_utf8_validation for more performance
             except Exception as e:
                 self.client.logger.error(f"Websocket ERROR: {repr(e)}")
 
@@ -511,10 +513,10 @@ class EquitiesQuoteReceiver(threading.Thread):
             if full is None:
                 full = partial
             else:
-                full = full.join(partial)
+                full = full + partial
         return full
 
-    def on_cont_message(self, partial_message, is_last): # The 3rd argument is continue flag. if 0, the data continue
+    def on_cont_message(self, ws, partial_message, is_last): # The 3rd argument is continue flag. if 0, the data continue
         try:
             if DEBUGGING:  # This is here for performance reasons so we don't use slow reflection on every message.
                 if isinstance(partial_message, str):
@@ -531,7 +533,7 @@ class EquitiesQuoteReceiver(threading.Thread):
                 else:
                     self.continuation_queue.put(partial_message)
                     full_message = self.stitch()
-                    self.on_message(self.client.ws, full_message)
+                    self.on_message(ws, full_message)
             finally:
                 self.continuation_lock.release()
         except queue.Full:

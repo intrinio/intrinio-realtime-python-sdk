@@ -9,7 +9,7 @@ import struct
 from collections.abc import Callable
 from enum import IntEnum, unique
 
-from ._websocket import abort_websocket_app, clear_socket_timeout, should_abort_handshake
+from ._websocket import abort_websocket_app, run_forever_with_connect_timeout, should_abort_handshake
 
 _SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 _CONNECT_TIMEOUT_SECONDS = 30
@@ -334,7 +334,6 @@ class _WebSocket(websocket.WebSocketApp):
         self.__handshake_event.set()
         self.__session_opened = True
         self.__session_opened_at = time.time()
-        clear_socket_timeout(self)
         _log.info("Websocket - Connected")
         self.__wsLock.acquire()
         try:
@@ -376,7 +375,7 @@ class _WebSocket(websocket.WebSocketApp):
             if full is None:
                 full = partial
             else:
-                full = full.join(partial)
+                full = full + partial
         return full
 
     def __on_data(self, ws, data, code, is_last): #continueFlag - If 0, the data continues
@@ -406,7 +405,6 @@ class _WebSocket(websocket.WebSocketApp):
                 _log.error("Error received: {0}".format(data))
 
     def start(self):
-        websocket.setdefaulttimeout(_CONNECT_TIMEOUT_SECONDS)
         while not self.__stop_flag.is_set():
             handshake_event = threading.Event()
             self.__handshake_event = handshake_event
@@ -437,7 +435,11 @@ class _WebSocket(websocket.WebSocketApp):
                 abort_websocket_app(self)
                 return
             try:
-                self.run_forever(skip_utf8_validation=True)
+                run_forever_with_connect_timeout(
+                    self,
+                    _CONNECT_TIMEOUT_SECONDS,
+                    skip_utf8_validation=True,
+                )
             except Exception as e:
                 _log.warning("Websocket - Attempt failed: {0}".format(e))
 
@@ -772,6 +774,7 @@ class IntrinioRealtimeOptionsClient:
         self.__data: queue.Queue = queue.Queue()
         self.__t_lock: threading.Lock = threading.Lock()
         self.__ws_lock: threading.Lock = threading.Lock()
+        self.__lifecycle_lock: threading.RLock = threading.RLock()
         self.__on_trade = on_trade
         self.__on_quote = on_quote
         self.__on_refresh = on_refresh
@@ -782,6 +785,8 @@ class IntrinioRealtimeOptionsClient:
         self.__worker_threads: list[threading.Thread] = self.__make_worker_threads()
         self.__socket_thread: threading.Thread = None
         self.__is_started: bool = False
+        self.__is_starting: bool = False
+        self.__is_stopping: bool = False
         _log.setLevel(config.log_level)
 
     def __make_worker_threads(self) -> list[threading.Thread]:
@@ -920,76 +925,108 @@ class IntrinioRealtimeOptionsClient:
         if "$FIREHOSE" in self.__channels:
             self.__leave("$FIREHOSE")
 
-    def __socket_start_fn(self, token: str):
+    def __socket_start_fn(self, token: str, stop_event: threading.Event,
+                          worker_threads: list[threading.Thread], data_queue: queue.Queue):
         if not token:
             _log.error("Websocket - Missing token")
             return
         _log.info("Websocket - Connecting...")
         ws_url: str = self.__get_web_socket_url(token)
-        self.__webSocket = _WebSocket(ws_url,
-                                      self.__ws_lock,
-                                      self.__worker_threads,
-                                      self.__get_channels,
-                                      self.__get_token,
-                                      self.__get_web_socket_url,
-                                      self.__use_on_trade,
-                                      self.__use_on_quote,
-                                      self.__use_on_refresh,
-                                      self.__use_on_unusual_activity,
-                                      self.__data,
-                                      self._stop_event)
-        self.__webSocket.start()
+        if stop_event.is_set():
+            return
+        web_socket = _WebSocket(ws_url,
+                                self.__ws_lock,
+                                worker_threads,
+                                self.__get_channels,
+                                self.__get_token,
+                                self.__get_web_socket_url,
+                                self.__use_on_trade,
+                                self.__use_on_quote,
+                                self.__use_on_refresh,
+                                self.__use_on_unusual_activity,
+                                data_queue,
+                                stop_event)
+        self.__webSocket = web_socket
+        web_socket.start()
 
     def start(self):
         if (not (self.__use_on_trade or self.__use_on_quote or self.__use_on_refresh or self.__use_on_unusual_activity)):
             raise ValueError("You must set at least one callback method before starting client")
-        if (self.__is_started
-                and self.__socket_thread is not None
-                and self.__socket_thread.is_alive()
-                and not self._stop_event.is_set()):
-            return
-        stop_generation = self._stop_generation
-        while True:
-            leftover = self.__socket_thread
-            if leftover is not None and leftover.is_alive():
-                abort_websocket_app(self.__webSocket)
-                leftover.join(timeout=_CONNECT_TIMEOUT_SECONDS + 1)
-                if leftover.is_alive():
+        with self.__lifecycle_lock:
+            if (self.__is_started
+                    and self.__socket_thread is not None
+                    and self.__socket_thread.is_alive()
+                    and not self._stop_event.is_set()):
+                return
+            if self.__is_starting:
+                return
+            if self.__is_stopping:
+                return
+            self.__is_starting = True
+            stop_generation = self._stop_generation
+        try:
+            while True:
+                leftover = self.__socket_thread
+                if leftover is not None and leftover.is_alive():
+                    abort_websocket_app(self.__webSocket)
+                    leftover.join(timeout=_CONNECT_TIMEOUT_SECONDS + 1)
+                    if leftover.is_alive():
+                        with self.__lifecycle_lock:
+                            if self._stop_generation != stop_generation:
+                                return
+                        continue
+                with self.__lifecycle_lock:
                     if self._stop_generation != stop_generation:
                         return
-                    continue
-            if self._stop_generation != stop_generation:
-                return
-            self._stop_event = threading.Event()
-            self.__worker_threads = self.__make_worker_threads()
-            token: str = self.__get_token()
-            if self._stop_event.is_set():
-                return
-            if not token:
-                if self._stop_event.wait(timeout=_SELF_HEAL_BACKOFFS[0]):
+                    self._stop_event = threading.Event()
+                    stop_event = self._stop_event
+                    self.__data = queue.Queue()
+                    data_queue = self.__data
+                    self.__worker_threads = self.__make_worker_threads()
+                    worker_threads = self.__worker_threads
+                token: str = self.__get_token()
+                if stop_event.is_set():
                     return
-                continue
-            self.__ws_lock.acquire()
-            try:
-                self.__socket_thread = threading.Thread(
-                    group=None,
-                    target=self.__socket_start_fn,
-                    args=(token,),
-                    kwargs={},
-                    daemon=True
-                )
-            finally:
-                self.__ws_lock.release()
-            self.__socket_thread.start()
-            self.__is_started = True
-            return
+                if not token:
+                    if stop_event.wait(timeout=_SELF_HEAL_BACKOFFS[0]):
+                        return
+                    continue
+                with self.__lifecycle_lock:
+                    if (self._stop_generation != stop_generation
+                            or self._stop_event is not stop_event
+                            or stop_event.is_set()):
+                        return
+                    socket_thread = threading.Thread(
+                        group=None,
+                        target=self.__socket_start_fn,
+                        args=(token, stop_event, worker_threads, data_queue),
+                        kwargs={},
+                        daemon=True
+                    )
+                    self.__socket_thread = socket_thread
+                    self.__is_started = True
+                    try:
+                        socket_thread.start()
+                    except Exception:
+                        self.__is_started = False
+                        raise
+                return
+        finally:
+            with self.__lifecycle_lock:
+                self.__is_starting = False
 
     def stop(self):
-        _log.info("Stopping...")
-        self._stop_generation += 1
-        self._stop_event.set()
-        try:
+        with self.__lifecycle_lock:
+            if self.__is_stopping:
+                return
+            self.__is_stopping = True
+            _log.info("Stopping...")
+            self._stop_generation += 1
+            self._stop_event.set()
             ws = self.__webSocket
+            worker_threads = self.__worker_threads
+            socket_thread = self.__socket_thread
+        try:
             if ws is not None:
                 try:
                     sock = getattr(ws, "sock", None)
@@ -1005,26 +1042,32 @@ class IntrinioRealtimeOptionsClient:
                     except Exception as e:
                         _log.warning("Websocket - Leave failed: {0}".format(e))
                         break
+            if ws is not None:
+                ws.stop()
             time.sleep(1.0)
         finally:
-            self.__ws_lock.acquire()
             try:
-                if self.__webSocket is not None:
-                    self.__webSocket.isReady = False
+                self.__ws_lock.acquire()
+                try:
+                    if ws is not None:
+                        ws.isReady = False
+                finally:
+                    self.__ws_lock.release()
+                if ws is not None:
+                    ws.stop()
+                for i in range(len(worker_threads)):
+                    worker = worker_threads[i]
+                    if worker.ident is not None:
+                        worker.join(timeout=_CONNECT_TIMEOUT_SECONDS + 1)
+                        _log.debug("Worker thread {0} joined".format(i))
+                if socket_thread is not None and socket_thread.ident is not None:
+                    socket_thread.join(timeout=_CONNECT_TIMEOUT_SECONDS + 1)
+                    _log.debug("Socket thread joined")
             finally:
-                self.__ws_lock.release()
-            if self.__webSocket is not None:
-                self.__webSocket.stop()
-            for i in range(len(self.__worker_threads)):
-                worker = self.__worker_threads[i]
-                if worker.ident is not None:
-                    worker.join(timeout=_CONNECT_TIMEOUT_SECONDS + 1)
-                    _log.debug("Worker thread {0} joined".format(i))
-            if self.__socket_thread is not None and self.__socket_thread.ident is not None:
-                self.__socket_thread.join(timeout=_CONNECT_TIMEOUT_SECONDS + 1)
-                _log.debug("Socket thread joined")
-            self.__is_started = False
-            _log.info("Stopped")
+                with self.__lifecycle_lock:
+                    self.__is_started = False
+                    self.__is_stopping = False
+                _log.info("Stopped")
 
     def get_stats(self) -> tuple[int, int, int]:
         return _dataMsgCount, _txtMsgCount, self.__data.qsize()

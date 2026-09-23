@@ -2,6 +2,11 @@ import socket
 import threading
 from typing import Optional
 
+import websocket
+
+
+_websocket_timeout_lock = threading.Lock()
+
 
 def abort_websocket_app(app) -> None:
     if app is None:
@@ -67,3 +72,33 @@ def clear_socket_timeout(app) -> None:
         sock.settimeout(None)
     except Exception:
         pass
+
+
+def run_forever_with_connect_timeout(app, timeout_seconds: float, **kwargs):
+    """Run an app with a connect timeout without leaving a global timeout behind."""
+    _websocket_timeout_lock.acquire()
+    previous_timeout = websocket.getdefaulttimeout()
+    original_on_open = app.on_open
+    restored = False
+
+    def restore_timeout() -> None:
+        nonlocal restored
+        if restored:
+            return
+        websocket.setdefaulttimeout(previous_timeout)
+        restored = True
+        _websocket_timeout_lock.release()
+
+    def on_open(ws, *args):
+        clear_socket_timeout(app)
+        restore_timeout()
+        if original_on_open:
+            original_on_open(ws, *args)
+
+    app.on_open = on_open
+    websocket.setdefaulttimeout(timeout_seconds)
+    try:
+        return app.run_forever(**kwargs)
+    finally:
+        restore_timeout()
+        app.on_open = original_on_open

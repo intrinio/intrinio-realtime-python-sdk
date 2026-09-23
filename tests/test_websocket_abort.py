@@ -4,7 +4,13 @@ import time
 import unittest
 from unittest.mock import Mock, call
 
-from intriniorealtime._websocket import abort_websocket_app, should_abort_handshake
+import websocket
+
+from intriniorealtime._websocket import (
+    abort_websocket_app,
+    run_forever_with_connect_timeout,
+    should_abort_handshake,
+)
 
 
 class FakeWebSocket:
@@ -60,6 +66,33 @@ class AbortWebsocketAppTests(unittest.TestCase):
         app = FakeApp(None)
         abort_websocket_app(app)
         self.assertFalse(app.keep_running)
+
+
+class ConnectTimeoutTests(unittest.TestCase):
+    def test_connect_timeout_is_restored_as_soon_as_socket_opens(self):
+        original_timeout = websocket.getdefaulttimeout()
+        websocket.setdefaulttimeout(17)
+        observed = []
+        sock = Mock()
+        app = Mock()
+        app.sock = sock
+
+        def on_open(ws):
+            observed.append(websocket.getdefaulttimeout())
+
+        def run_forever(**kwargs):
+            self.assertEqual(websocket.getdefaulttimeout(), 3)
+            app.on_open(app)
+
+        app.on_open = on_open
+        app.run_forever.side_effect = run_forever
+        try:
+            run_forever_with_connect_timeout(app, 3)
+            self.assertEqual(observed, [17])
+            self.assertEqual(websocket.getdefaulttimeout(), 17)
+            sock.settimeout.assert_called_once_with(None)
+        finally:
+            websocket.setdefaulttimeout(original_timeout)
 
 
 class ShouldAbortHandshakeTests(unittest.TestCase):

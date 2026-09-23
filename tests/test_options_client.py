@@ -415,6 +415,34 @@ class OptionsReconnectTests(unittest.TestCase):
         self.assertEqual(start_calls, [1])
         self.assertTrue(client._IntrinioRealtimeOptionsClient__is_started)
 
+    def test_stop_during_socket_thread_start_does_not_publish_started_state(self):
+        client = _make_client()
+
+        def stop_before_thread_runs():
+            client.stop()
+
+        with patch.object(client, "_IntrinioRealtimeOptionsClient__get_token", return_value="tok"), \
+             patch.object(threading.Thread, "start", side_effect=stop_before_thread_runs), \
+             patch("intriniorealtime.options_client.time.sleep"):
+            client.start()
+
+        self.assertTrue(client._stop_event.is_set())
+        self.assertFalse(client._IntrinioRealtimeOptionsClient__is_started)
+
+    def test_start_replaces_data_queue_from_previous_session(self):
+        client = _make_client()
+        old_queue = client._IntrinioRealtimeOptionsClient__data
+        old_queue.put(b"stale")
+
+        with patch.object(client, "_IntrinioRealtimeOptionsClient__get_token", return_value="tok"), \
+             patch.object(_WebSocket, "start"):
+            client.start()
+
+        new_queue = client._IntrinioRealtimeOptionsClient__data
+        self.assertIsNot(new_queue, old_queue)
+        self.assertTrue(new_queue.empty())
+        self.assertEqual(old_queue.get_nowait(), b"stale")
+
     def test_start_on_healthy_session_is_noop(self):
         client = _make_client()
         thread = Mock()
