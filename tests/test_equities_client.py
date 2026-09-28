@@ -10,6 +10,7 @@ import websocket
 
 from intriniorealtime.equities_client import (
     CONNECT_TIMEOUT_SECONDS,
+    STABLE_SESSION_SECONDS,
     EquitiesQuoteHandler,
     EquitiesQuoteReceiver,
     IntrinioRealtimeEquitiesClient,
@@ -31,6 +32,9 @@ class EquitiesReconnectTests(unittest.TestCase):
 
     def tearDown(self):
         logging.disable(logging.NOTSET)
+
+    def test_default_stable_session_requires_sustained_health(self):
+        self.assertGreaterEqual(STABLE_SESSION_SECONDS, 60)
 
     def test_on_connect_rejoins_channels_after_reconnect(self):
         client = _make_client()
@@ -441,8 +445,7 @@ class EquitiesReconnectTests(unittest.TestCase):
                 if self.join_calls == 1:
                     old_join_entered.set()
                     release_disconnect.wait(timeout=2)
-                else:
-                    self.alive = False
+                self.alive = False
 
         old_receiver = OldReceiver()
         new_receiver = Mock()
@@ -714,24 +717,97 @@ class EquitiesReconnectTests(unittest.TestCase):
             client.connect()
         ctor.assert_not_called()
 
-    def test_disconnect_keeps_receiver_if_join_times_out(self):
+    def test_incomplete_disconnect_blocks_connect_until_receiver_exits(self):
         client = _make_client()
-        old = Mock()
-        old.is_alive.return_value = True
+        release_receiver = threading.Event()
+        old = threading.Thread(target=release_receiver.wait, daemon=True)
         old.enabled = True
-        old.join = Mock()
+        old.start()
         client.quote_receiver = old
         client.ws = Mock()
 
         ws = client.ws
-        with patch("intriniorealtime.equities_client.close_websocket_app") as abort:
-            client.disconnect()
+        with patch("intriniorealtime.equities_client.CONNECT_TIMEOUT_SECONDS", -1), \
+             patch("intriniorealtime.equities_client.close_websocket_app") as abort:
+            with self.assertRaisesRegex(RuntimeError, "disconnect incomplete"):
+                client.disconnect()
 
         self.assertFalse(old.enabled)
-        old.join.assert_called()
         self.assertIs(client.quote_receiver, old)
         self.assertIs(client.ws, ws)
+        self.assertTrue(client._disconnecting)
         self.assertGreaterEqual(abort.call_count, 2)
+        with self.assertRaisesRegex(RuntimeError, "disconnecting"):
+            client.connect()
+
+        release_receiver.set()
+        old.join(timeout=1)
+        deadline = time.time() + 1
+        while client._disconnecting and time.time() < deadline:
+            time.sleep(0.01)
+
+        self.assertFalse(client._disconnecting)
+        self.assertIsNone(client.quote_receiver)
+        self.assertIsNone(client.ws)
+
+    def test_deferred_disconnect_waits_for_calling_handler_too(self):
+        client = _make_client()
+        release_receiver = threading.Event()
+        release_handler = threading.Event()
+        disconnect_returned = threading.Event()
+        disconnect_errors = []
+
+        class Receiver(threading.Thread):
+            def __init__(self):
+                super().__init__(target=release_receiver.wait, daemon=True)
+                self.enabled = True
+
+        class Handler(threading.Thread):
+            def __init__(self):
+                super().__init__(target=self.run_callback, daemon=True)
+                self.stopped = False
+
+            def stop(self):
+                self.stopped = True
+
+            def run_callback(self):
+                try:
+                    client.disconnect()
+                except Exception as error:
+                    disconnect_errors.append(error)
+                disconnect_returned.set()
+                release_handler.wait()
+
+        receiver = Receiver()
+        handler = Handler()
+        receiver.start()
+        client.quote_receiver = receiver
+        client.quote_handler = handler
+        client.ws = Mock()
+
+        with patch("intriniorealtime.equities_client.CONNECT_TIMEOUT_SECONDS", -1):
+            handler.start()
+            self.assertTrue(disconnect_returned.wait(timeout=1))
+
+        self.assertEqual(len(disconnect_errors), 1)
+        self.assertRegex(str(disconnect_errors[0]), "disconnect incomplete")
+        self.assertTrue(client._disconnecting)
+
+        release_receiver.set()
+        receiver.join(timeout=1)
+        time.sleep(0.05)
+        self.assertTrue(client._disconnecting)
+        self.assertTrue(handler.is_alive())
+
+        release_handler.set()
+        handler.join(timeout=1)
+        deadline = time.time() + 1
+        while client._disconnecting and time.time() < deadline:
+            time.sleep(0.01)
+
+        self.assertFalse(client._disconnecting)
+        self.assertIsNone(client.quote_receiver)
+        self.assertIsNone(client.quote_handler)
 
     def test_refresh_websocket_does_not_replace_receiver_still_alive_after_join(self):
         client = _make_client()
@@ -804,6 +880,35 @@ class EquitiesReconnectTests(unittest.TestCase):
         self.assertEqual(run_count["n"], 2)
         self.assertEqual(client.refresh_token.call_count, 1)
         client.do_backoff.assert_not_called()
+
+    def test_completed_handshake_attempt_cancels_its_watchdog(self):
+        client = _make_client()
+        client.token = "tok"
+        receiver = EquitiesQuoteReceiver(client)
+        run_count = {"n": 0}
+
+        def fake_run_forever(app, *args, **kwargs):
+            run_count["n"] += 1
+            if run_count["n"] >= 2:
+                receiver.enabled = False
+                client._stop_event.set()
+
+        def backoff():
+            client._stop_event.wait(timeout=0.06)
+
+        client.do_backoff = backoff
+        client.refresh_token = Mock()
+        with patch("intriniorealtime.equities_client.CONNECT_TIMEOUT_SECONDS", 0.02), \
+             patch("intriniorealtime.equities_client.websocket.WebSocketApp.run_forever", fake_run_forever), \
+             patch.object(client.logger, "warning") as warning:
+            receiver.run()
+
+        timeout_warnings = [
+            call for call in warning.call_args_list
+            if call.args and "connect timed out" in call.args[0]
+        ]
+        self.assertEqual(run_count["n"], 2)
+        self.assertEqual(timeout_warnings, [])
 
 
 if __name__ == "__main__":

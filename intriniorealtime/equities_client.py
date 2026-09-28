@@ -14,7 +14,7 @@ from ._websocket import close_websocket_app, should_abort_handshake
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 CONNECT_TIMEOUT_SECONDS = 30
-STABLE_SESSION_SECONDS = 1.0
+STABLE_SESSION_SECONDS = 60.0
 _EMPTY_STRING = ""
 _NAN = float("NAN")
 REALTIME = "REALTIME"
@@ -275,9 +275,26 @@ class IntrinioRealtimeEquitiesClient:
                     self.logger.error(f"Cannot connect: {repr(e)}")
                     self.do_backoff()
 
+    def _finish_incomplete_disconnect(self, receiver, handler, survivors):
+        for thread in survivors:
+            thread.join()
+        with self._lifecycle_lock:
+            if (receiver is not None
+                    and self.quote_receiver is receiver
+                    and not receiver.is_alive()):
+                self.quote_receiver = None
+                self.ws = None
+            if (handler is not None
+                    and self.quote_handler is handler
+                    and not handler.is_alive()):
+                self.quote_handler = None
+            self._disconnecting = False
+
     def disconnect(self):
         with self._disconnect_lock:
             with self._lifecycle_lock:
+                if self._disconnecting:
+                    raise RuntimeError("Client disconnect is already in progress")
                 self._disconnecting = True
                 self._lifecycle_generation += 1
                 self._stop_event.set()
@@ -286,6 +303,8 @@ class IntrinioRealtimeEquitiesClient:
                 websocket_app = self.ws
                 if receiver is not None:
                     receiver.enabled = False
+                shutdown_deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS + 1
+            deferred_completion = False
             try:
                 if handler is not None:
                     handler.stop()
@@ -297,7 +316,10 @@ class IntrinioRealtimeEquitiesClient:
                     self.joined_channels = set()
 
                 if receiver is not None:
-                    receiver.join(timeout=CONNECT_TIMEOUT_SECONDS + 1)
+                    if (getattr(receiver, "ident", True) is not None
+                            and receiver is not threading.current_thread()):
+                        receiver.join(timeout=max(
+                            0.0, shutdown_deadline - time.monotonic()))
                     if receiver.is_alive():
                         close_websocket_app(websocket_app)
                     else:
@@ -315,17 +337,40 @@ class IntrinioRealtimeEquitiesClient:
 
                 if (
                     handler is not None
-                    and handler.ident is not None
+                    and getattr(handler, "ident", True) is not None
                     and handler is not threading.current_thread()
                 ):
-                    handler.join(timeout=CONNECT_TIMEOUT_SECONDS + 1)
+                    handler.join(timeout=max(
+                        0.0, shutdown_deadline - time.monotonic()))
                 if handler is not None and not handler.is_alive():
                     with self._lifecycle_lock:
                         if self.quote_handler is handler:
                             self.quote_handler = None
+
+                current_thread = threading.current_thread()
+                non_current_survivors = [
+                    thread for thread in (receiver, handler)
+                    if (thread is not None
+                        and thread is not current_thread
+                        and thread.is_alive())
+                ]
+                if non_current_survivors:
+                    deferred_survivors = list(non_current_survivors)
+                    if (current_thread in (receiver, handler)
+                            and current_thread.is_alive()):
+                        deferred_survivors.append(current_thread)
+                    deferred_completion = True
+                    threading.Thread(
+                        target=self._finish_incomplete_disconnect,
+                        args=(receiver, handler, deferred_survivors),
+                        daemon=True,
+                    ).start()
+                    raise RuntimeError(
+                        "Client disconnect incomplete: threads did not exit")
             finally:
-                with self._lifecycle_lock:
-                    self._disconnecting = False
+                if not deferred_completion:
+                    with self._lifecycle_lock:
+                        self._disconnecting = False
 
     def refresh_quote_handler(self):
         handler = self.quote_handler
@@ -577,6 +622,10 @@ class EquitiesQuoteReceiver(threading.Thread):
                 )  # skip_utf8_validation for more performance
             except Exception as e:
                 self.client.logger.error(f"Websocket ERROR: {repr(e)}")
+            finally:
+                # The attempt is over even if the websocket never opened. Wake
+                # its watchdog so it cannot fire later during reconnect backoff.
+                handshake_event.set()
 
             with self.client._channels_lock:
                 self.client.ready = False

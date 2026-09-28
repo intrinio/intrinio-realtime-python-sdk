@@ -12,13 +12,15 @@ from intriniorealtime.options_client import (
     IntrinioRealtimeOptionsClient,
     Providers,
     _CONNECT_TIMEOUT_SECONDS,
+    _STABLE_SESSION_SECONDS,
     _WebSocket,
     _thread_fn,
 )
 
 
 def _make_ws(stop_flag, get_token=None, get_url=None, channels=None, data_queue=None,
-             channels_lock=None, stats=None, stats_lock=None, sent_channels=None):
+             channels_lock=None, stats=None, stats_lock=None, sent_channels=None,
+             worker_threads=None, worker_factory=None):
     return _WebSocket(
         "ws://example/old",
         threading.Lock(),
@@ -26,7 +28,7 @@ def _make_ws(stop_flag, get_token=None, get_url=None, channels=None, data_queue=
         sent_channels if sent_channels is not None else set(),
         stats if stats is not None else {"data": 0, "text": 0},
         stats_lock or threading.Lock(),
-        [],
+        worker_threads if worker_threads is not None else [],
         lambda: channels if channels is not None else set(),
         get_token or (lambda: "tok"),
         get_url or (lambda token: "ws://example/" + token),
@@ -36,6 +38,7 @@ def _make_ws(stop_flag, get_token=None, get_url=None, channels=None, data_queue=
         False,
         data_queue if data_queue is not None else queue.Queue(),
         stop_flag,
+        worker_factory,
     )
 
 
@@ -55,6 +58,9 @@ class OptionsReconnectTests(unittest.TestCase):
 
     def tearDown(self):
         logging.disable(logging.NOTSET)
+
+    def test_default_stable_session_requires_sustained_health(self):
+        self.assertGreaterEqual(_STABLE_SESSION_SECONDS, 60)
 
     def test_config_rejects_non_positive_or_non_integer_worker_counts(self):
         for num_threads in (0, -1, True, 1.5, "2"):
@@ -332,6 +338,47 @@ class OptionsReconnectTests(unittest.TestCase):
         self.assertFalse(opener.is_alive())
         self.assertFalse(ws.isReady)
 
+    def test_open_replaces_a_terminated_worker_before_publishing_ready(self):
+        stop = threading.Event()
+        terminated = threading.Thread(target=lambda: None)
+        terminated.start()
+        terminated.join(timeout=1)
+        replacements = []
+
+        def make_worker(_index):
+            worker = threading.Thread(target=stop.wait)
+            replacements.append(worker)
+            return worker
+
+        workers = [terminated]
+        ws = _make_ws(
+            stop,
+            worker_threads=workers,
+            worker_factory=make_worker,
+        )
+
+        ws.on_open(ws)
+
+        self.assertTrue(ws.isReady)
+        self.assertIs(workers[0], replacements[0])
+        self.assertTrue(replacements[0].is_alive())
+        stop.set()
+        replacements[0].join(timeout=1)
+
+    def test_open_rolls_back_ready_when_worker_start_fails(self):
+        stop = threading.Event()
+        terminated = threading.Thread(target=lambda: None)
+        terminated.start()
+        terminated.join(timeout=1)
+        ws = _make_ws(stop, worker_threads=[terminated])
+
+        with patch("intriniorealtime.options_client.close_websocket_app") as close:
+            with self.assertRaisesRegex(RuntimeError, "cannot be restarted"):
+                ws.on_open(ws)
+
+        self.assertFalse(ws.isReady)
+        close.assert_called_once_with(ws)
+
     def test_open_aborts_connection_when_channel_replay_fails(self):
         stop = threading.Event()
         sent_channels = set()
@@ -516,17 +563,77 @@ class OptionsReconnectTests(unittest.TestCase):
         self.assertGreater(timeout, 0)
         self.assertLessEqual(timeout, _CONNECT_TIMEOUT_SECONDS + 1)
 
-    def test_stop_from_worker_callback_does_not_join_current_thread(self):
+    def test_stop_from_worker_callback_finishes_after_worker_exits(self):
         client = _make_client()
-        current = threading.current_thread()
-        client._IntrinioRealtimeOptionsClient__worker_threads = [current]
+        callback_entered = threading.Event()
+        stop_returned = threading.Event()
+        release_callback = threading.Event()
+
+        def callback_worker():
+            callback_entered.set()
+            client.stop()
+            stop_returned.set()
+            release_callback.wait(timeout=1)
+
+        worker = threading.Thread(target=callback_worker)
+        client._IntrinioRealtimeOptionsClient__worker_threads = [worker]
         client._IntrinioRealtimeOptionsClient__socket_thread = None
         client._IntrinioRealtimeOptionsClient__webSocket = None
+        client._IntrinioRealtimeOptionsClient__is_started = True
+        worker.start()
 
-        with patch("intriniorealtime.options_client.time.sleep"):
-            client.stop()
+        self.assertTrue(callback_entered.wait(timeout=1))
+        self.assertTrue(stop_returned.wait(timeout=1))
+        self.assertTrue(client._IntrinioRealtimeOptionsClient__is_stopping)
+
+        waiting_stop = threading.Thread(target=client.stop)
+        waiting_stop.start()
+        waiting_stop.join(timeout=0.05)
+        self.assertTrue(waiting_stop.is_alive())
+
+        with self.assertRaisesRegex(RuntimeError, "client is stopping"):
+            client.start()
+
+        release_callback.set()
+        worker.join(timeout=1)
+        waiting_stop.join(timeout=1)
 
         self.assertTrue(client._stop_event.is_set())
+        self.assertFalse(client._IntrinioRealtimeOptionsClient__is_stopping)
+        self.assertFalse(client._IntrinioRealtimeOptionsClient__is_started)
+        self.assertFalse(waiting_stop.is_alive())
+
+    def test_concurrent_worker_stops_do_not_wait_on_each_other(self):
+        client = _make_client()
+        barrier = threading.Barrier(3)
+        results = []
+
+        def callback_worker():
+            barrier.wait()
+            try:
+                client.stop()
+                results.append(None)
+            except Exception as error:
+                results.append(error)
+
+        workers = [threading.Thread(target=callback_worker) for _ in range(2)]
+        client._IntrinioRealtimeOptionsClient__worker_threads = workers
+        client._IntrinioRealtimeOptionsClient__socket_thread = None
+        client._IntrinioRealtimeOptionsClient__is_started = True
+        for worker in workers:
+            worker.start()
+
+        barrier.wait()
+        for worker in workers:
+            worker.join(timeout=2)
+
+        deadline = time.time() + 1
+        while client._IntrinioRealtimeOptionsClient__is_stopping and time.time() < deadline:
+            time.sleep(0.01)
+
+        self.assertEqual(results, [None, None])
+        self.assertFalse(any(worker.is_alive() for worker in workers))
+        self.assertFalse(client._IntrinioRealtimeOptionsClient__is_stopping)
         self.assertFalse(client._IntrinioRealtimeOptionsClient__is_started)
 
     def test_open_then_drop_twice_backs_off_on_second_reconnect(self):
@@ -619,6 +726,29 @@ class OptionsReconnectTests(unittest.TestCase):
 
         self.assertEqual(run_count["n"], 2)
         self.assertIn(0.01, waits)
+
+    def test_completed_handshake_attempt_cancels_its_watchdog(self):
+        stop = threading.Event()
+        run_count = {"n": 0}
+
+        def fake_run_forever(app, *args, **kwargs):
+            run_count["n"] += 1
+            if run_count["n"] >= 2:
+                stop.set()
+
+        ws = _make_ws(stop)
+        with patch("intriniorealtime.options_client._CONNECT_TIMEOUT_SECONDS", 0.02), \
+             patch("intriniorealtime.options_client._SELF_HEAL_BACKOFFS", [0.06]), \
+             patch("intriniorealtime.options_client.websocket.WebSocketApp.run_forever", fake_run_forever), \
+             patch("intriniorealtime.options_client._log.warning") as warning:
+            ws.start()
+
+        timeout_warnings = [
+            call for call in warning.call_args_list
+            if call.args and "Connect timed out" in call.args[0]
+        ]
+        self.assertEqual(run_count["n"], 2)
+        self.assertEqual(timeout_warnings, [])
 
     def test_stop_sets_flag_before_socket_abort(self):
         client = _make_client()

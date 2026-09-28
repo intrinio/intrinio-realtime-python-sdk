@@ -13,7 +13,7 @@ from ._websocket import close_websocket_app, should_abort_handshake
 
 _SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 _CONNECT_TIMEOUT_SECONDS = 30
-_STABLE_SESSION_SECONDS = 1.0
+_STABLE_SESSION_SECONDS = 60.0
 _EMPTY_STRING = ""
 _OPTIONS_TRADE_MESSAGE_SIZE = 72  # 61 used + 11 pad
 _OPTIONS_QUOTE_MESSAGE_SIZE = 52  # 48 used + 4 pad
@@ -295,7 +295,8 @@ class _WebSocket:
                  use_on_refresh: bool,
                  use_on_ua: bool,
                  data_queue: queue.Queue,
-                 stop_flag: threading.Event):
+                 stop_flag: threading.Event,
+                 worker_factory: Callable[[int], threading.Thread] = None):
         self.url: str = ws_url
         self.__wsLock: threading.Lock = ws_lock
         self.__channels_lock: threading.RLock = channels_lock
@@ -325,6 +326,7 @@ class _WebSocket:
         self.__session_opened: bool = False
         self.__session_opened_at: float = 0.0
         self.__stop_flag: threading.Event = stop_flag
+        self.__worker_factory = worker_factory
 
     def __close_leftover_sock(self):
         with self.__app_lock:
@@ -356,11 +358,22 @@ class _WebSocket:
                 self.__sent_channels.clear()
                 self.__wsLock.acquire()
                 try:
+                    for index, worker in enumerate(self.__worker_threads):
+                        if worker.is_alive():
+                            continue
+                        if worker.ident is not None:
+                            if self.__worker_factory is None:
+                                raise RuntimeError("Stopped worker thread cannot be restarted")
+                            worker = self.__worker_factory(index)
+                            self.__worker_threads[index] = worker
+                        worker.start()
                     self.isReady = True
                     self.__is_reconnecting = False
-                    for worker in self.__worker_threads:
-                        if not worker.is_alive():
-                            worker.start()
+                except Exception:
+                    self.isReady = False
+                    self.__sent_channels.clear()
+                    close_websocket_app(ws)
+                    raise
                 finally:
                     self.__wsLock.release()
                 if self.__get_channels and callable(self.__get_channels):
@@ -476,6 +489,9 @@ class _WebSocket:
             except Exception as e:
                 _log.warning("Websocket - Attempt failed: {0}".format(e))
             finally:
+                # The attempt is over even if the websocket never opened. Wake
+                # its watchdog so it cannot fire later during reconnect backoff.
+                handshake_event.set()
                 with self.__app_lock:
                     if self.__app is app:
                         self.__app = None
@@ -867,13 +883,19 @@ class IntrinioRealtimeOptionsClient:
         _log.setLevel(config.log_level)
 
     def __make_worker_threads(self) -> list[threading.Thread]:
-        return [threading.Thread(
+        return [self.__make_worker_thread(i, self.__data, self._stop_event)
+                for i in range(self.__num_threads)]
+
+    def __make_worker_thread(self, index: int, data_queue: queue.Queue,
+                             stop_event: threading.Event) -> threading.Thread:
+        return threading.Thread(
             group=None,
             target=_thread_fn,
-            args=(i, self.__data, self.__on_trade, self.__on_quote, self.__on_refresh, self.__on_unusual_activity, self._stop_event),
+            args=(index, data_queue, self.__on_trade, self.__on_quote,
+                  self.__on_refresh, self.__on_unusual_activity, stop_event),
             kwargs={},
             daemon=True
-        ) for i in range(self.__num_threads)]
+        )
 
     def __all_ready(self) -> bool:
         self.__ws_lock.acquire()
@@ -1038,7 +1060,9 @@ class IntrinioRealtimeOptionsClient:
                                 self.__use_on_refresh,
                                 self.__use_on_unusual_activity,
                                 data_queue,
-                                stop_event)
+                                stop_event,
+                                lambda index: self.__make_worker_thread(
+                                    index, data_queue, stop_event))
         self.__webSocket = web_socket
         web_socket.start()
 
@@ -1137,11 +1161,51 @@ class IntrinioRealtimeOptionsClient:
                 start_result["error"] = failure
                 start_complete.set()
 
+    def __publish_stop_result(self, stop_complete: threading.Event,
+                              stop_result: dict, surviving_threads: list,
+                              failure: BaseException = None):
+        with self.__lifecycle_lock:
+            self.__is_started = bool(surviving_threads)
+            self.__is_stopping = False
+            self.__stopping_thread = None
+            stop_result["error"] = str(failure) if failure is not None else None
+            stop_complete.set()
+        if failure is not None:
+            _log.error("Stop incomplete: {0}".format(failure))
+        else:
+            _log.info("Stopped")
+
+    def __finish_stop_after_owned_thread_exits(
+            self, owned_thread: threading.Thread,
+            candidate_threads: list[threading.Thread],
+            stop_complete: threading.Event, stop_result: dict,
+            failure: BaseException = None):
+        try:
+            owned_thread.join()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+        surviving_threads = [
+            thread for thread in candidate_threads if thread.is_alive()
+        ]
+        if failure is None and surviving_threads:
+            failure = RuntimeError("Client stop incomplete: threads did not exit")
+        self.__publish_stop_result(
+            stop_complete, stop_result, surviving_threads, failure)
+
     def stop(self):
         current_thread = threading.current_thread()
         with self.__lifecycle_lock:
             if self.__is_stopping:
-                if self.__stopping_thread is current_thread:
+                owned_threads = self.__worker_threads + (
+                    [self.__socket_thread]
+                    if self.__socket_thread is not None else []
+                )
+                if (self.__stopping_thread is current_thread
+                        or current_thread in owned_threads):
+                    # An owned thread must return to its run loop before the
+                    # active shutdown can join it. Waiting here would make the
+                    # shutdown wait on its own completion event.
                     return
                 stop_complete = self.__stop_complete
                 stop_result = self.__stop_result
@@ -1168,15 +1232,13 @@ class IntrinioRealtimeOptionsClient:
             return
 
         candidate_threads = [
-            worker for worker in worker_threads
-            if worker.ident is not None and worker is not current_thread
+            worker for worker in worker_threads if worker.ident is not None
         ]
-        if (socket_thread is not None
-                and socket_thread.ident is not None
-                and socket_thread is not current_thread):
+        if socket_thread is not None and socket_thread.ident is not None:
             candidate_threads.append(socket_thread)
         surviving_threads = []
         failure = None
+        deferred_completion = False
         try:
             try:
                 if ws is not None:
@@ -1213,20 +1275,30 @@ class IntrinioRealtimeOptionsClient:
             # Recheck after all joins and cleanup so threads that exited while a
             # later thread was being joined are not retained as false survivors.
             surviving_threads = [thread for thread in candidate_threads if thread.is_alive()]
-            if failure is None and surviving_threads:
+            owned_current_thread = (
+                current_thread if current_thread in surviving_threads else None
+            )
+            other_survivors = [
+                thread for thread in surviving_threads
+                if thread is not owned_current_thread
+            ]
+            if failure is None and other_survivors:
                 failure = RuntimeError("Client stop incomplete: threads did not exit")
-            with self.__lifecycle_lock:
-                self.__is_started = bool(surviving_threads)
-                self.__is_stopping = False
-                self.__stopping_thread = None
-                stop_result["error"] = str(failure) if failure is not None else None
-                stop_complete.set()
-            if failure is not None:
-                _log.error("Stop incomplete: {0}".format(failure))
+            if owned_current_thread is not None:
+                deferred_completion = True
+                threading.Thread(
+                    target=self.__finish_stop_after_owned_thread_exits,
+                    args=(owned_current_thread, candidate_threads,
+                          stop_complete, stop_result, failure),
+                    daemon=True,
+                ).start()
             else:
-                _log.info("Stopped")
+                self.__publish_stop_result(
+                    stop_complete, stop_result, surviving_threads, failure)
         if failure is not None:
             raise failure
+        if deferred_completion:
+            _log.debug("Stop completion deferred until callback thread exits")
 
     def get_stats(self) -> tuple[int, int, int]:
         with self.__stats_lock:
