@@ -9,7 +9,7 @@ import struct
 from collections.abc import Callable
 from enum import IntEnum, unique
 
-from ._websocket import close_websocket_app, should_abort_handshake
+from ._websocket import close_websocket_app, should_abort_handshake, _redact_api_key
 
 _SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 _CONNECT_TIMEOUT_SECONDS = 30
@@ -947,7 +947,7 @@ class IntrinioRealtimeOptionsClient:
             _log.error("Authorization Failure: The request timed out.")
             return False
         except requests.exceptions.ConnectionError as err:
-            _log.error("Authorization Failure: {0}".format(err))
+            _log.error("Authorization Failure: %s", _redact_api_key(err, self.__apiKey))
             return False
 
     def __get_token(self) -> str:

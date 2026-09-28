@@ -10,7 +10,7 @@ import wsaccel
 from enum import IntEnum, unique
 from typing import Optional, Dict, Any
 
-from ._websocket import close_websocket_app, should_abort_handshake
+from ._websocket import close_websocket_app, should_abort_handshake, _redact_api_key
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 CONNECT_TIMEOUT_SECONDS = 30
@@ -272,7 +272,7 @@ class IntrinioRealtimeEquitiesClient:
                     self.refresh_websocket(requested_generation)
                     return
                 except Exception as e:
-                    self.logger.error(f"Cannot connect: {repr(e)}")
+                    self.logger.error("Cannot connect: %s", _redact_api_key(repr(e), self.api_key))
                     self.do_backoff()
 
     def _finish_incomplete_disconnect(self, receiver, handler, survivors):
@@ -650,7 +650,7 @@ class EquitiesQuoteReceiver(threading.Thread):
                     self.client.refresh_token()
                     break
                 except Exception as e:
-                    self.client.logger.error(f"Cannot connect: {repr(e)}")
+                    self.client.logger.error("Cannot connect: %s", _redact_api_key(repr(e), self.client.api_key))
 
         self.client.logger.debug("QuoteReceiver exiting")
 

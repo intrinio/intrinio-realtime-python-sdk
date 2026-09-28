@@ -32,3 +32,8 @@ def should_abort_handshake(
         if remaining <= 0:
             return True
         handshake_event.wait(min(remaining, 0.1))
+
+
+def _redact_api_key(message, api_key):
+    text = str(message)
+    return text.replace(api_key, "<redacted>") if api_key else text
