@@ -11,6 +11,7 @@ from enum import IntEnum, unique
 from typing import Optional, Dict, Any
 
 from ._websocket import close_websocket_app, should_abort_handshake, _redact_api_key
+from ._multi_queue import MultiQueue
 
 SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 CONNECT_TIMEOUT_SECONDS = 30
@@ -37,7 +38,31 @@ DEBUGGING = not (sys.gettrace() is None)
 HEADER_MESSAGE_FORMAT_KEY = "UseNewEquitiesFormat"
 HEADER_MESSAGE_FORMAT_VALUE = "v2"
 HEADER_CLIENT_INFORMATION_KEY = "Client-Information"
-HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv6.4.0"
+HEADER_CLIENT_INFORMATION_VALUE = "IntrinioPythonSDKv6.5.0"
+
+
+def _split_equities_message(message):
+    if not isinstance(message, (bytes, bytearray, memoryview)) or len(message) < 1:
+        return [(1, message)]
+
+    items = []
+    start_index = 1
+    for _ in range(message[0]):
+        if start_index + 2 > len(message):
+            return [(1, message)]
+        message_length = message[start_index + 1]
+        if message_length < 24 or start_index + message_length > len(message):
+            return [(1, message)]
+        message_type = message[start_index]
+        record = bytes(message[start_index:start_index + message_length])
+        items.append((0 if message_type == 0 else 1, bytes([1]) + record))
+        start_index += message_length
+
+    return items or [(1, message)]
+
+
+def _make_equities_queue(maxsize):
+    return MultiQueue(2, _split_equities_message, maxsize=maxsize)
 
 
 class EquitiesQuote:
@@ -137,7 +162,7 @@ class IntrinioRealtimeEquitiesClient:
             self.max_queue_size = configuration['max_queue_size']
         else:
             self.max_queue_size = MAX_QUEUE_SIZE
-        self.quotes = queue.Queue(maxsize=self.max_queue_size)
+        self.quotes = _make_equities_queue(self.max_queue_size)
 
         if self.api_key:
             if not self.valid_api_key(self.api_key):
@@ -383,7 +408,7 @@ class IntrinioRealtimeEquitiesClient:
                 handler.join(timeout=CONNECT_TIMEOUT_SECONDS + 1)
             if handler.is_alive() and not replacing_current_stopped_handler:
                 raise RuntimeError("Previous quote handler did not exit")
-        self.quotes = queue.Queue(maxsize=self.max_queue_size)
+        self.quotes = _make_equities_queue(self.max_queue_size)
         self.quote_handler = EquitiesQuoteHandler(self, self.bypass_parsing)
         self.quote_handler.start()
 
@@ -446,7 +471,7 @@ class IntrinioRealtimeEquitiesClient:
 
     def on_queue_full(self):
         if time.time() - self.last_queue_warning_time > 1:
-            self.logger.error("Quote queue is full! Dropped some new quotes")
+            self.logger.error("Event queue is full! Dropped some new events")
             self.last_queue_warning_time = time.time()
 
     def join(self, channels: list[str]):

@@ -257,6 +257,46 @@ class EquitiesReconnectTests(unittest.TestCase):
                 self.assertEqual(next_index, len(record))
                 callback.assert_called_once_with(bytes(record), 7)
 
+    def test_internal_queues_process_trades_before_quotes(self):
+        client = _make_client()
+        quote = bytearray(24)
+        quote[0] = 1
+        quote[1] = len(quote)
+        trade = bytearray(24)
+        trade[0] = 0
+        trade[1] = len(trade)
+
+        client.quotes.put(bytes([2]) + bytes(quote) + bytes(trade))
+
+        self.assertEqual(client.quotes.qsize(), 2)
+        self.assertEqual(client.quotes.get_nowait()[1], 0)
+        self.assertEqual(client.quotes.get_nowait()[1], 1)
+
+    def test_trade_queue_has_capacity_independent_of_quote_queue(self):
+        with patch.object(EquitiesQuoteHandler, "start"):
+            client = IntrinioRealtimeEquitiesClient(
+                {
+                    "api_key": "test-key",
+                    "provider": "IEX",
+                    "max_queue_size": 1,
+                },
+                lambda *args: None,
+                lambda *args: None,
+            )
+        quote = bytearray(24)
+        quote[0] = 1
+        quote[1] = len(quote)
+        trade = bytearray(24)
+        trade[0] = 0
+        trade[1] = len(trade)
+
+        client.quotes.put_nowait(bytes([1]) + bytes(quote))
+        client.quotes.put_nowait(bytes([1]) + bytes(trade))
+
+        self.assertEqual(client.quotes.qsize(), 2)
+        self.assertEqual(client.quotes.get_nowait()[1], 0)
+        self.assertEqual(client.quotes.get_nowait()[1], 1)
+
     def test_quote_handler_ignores_text_and_malformed_binary_messages(self):
         client = _make_client()
         client.on_trade = Mock()

@@ -143,7 +143,7 @@ class Summarize(threading.Thread):
 options_config: Config = Config(
     api_key="API_KEY_HERE",
     provider=Providers.OPRA, # or Providers.OPTIONS_EDGE
-    num_threads=8,
+    num_threads=12,
     # symbols=[], # this is a static list of symbols (options contracts or option chains) that will automatically be subscribed to when the client starts
     log_level=LogLevel.INFO,
     delayed=False) #set delayed parameter to true if you have realtime access but want the data delayed 15 minutes anyway
