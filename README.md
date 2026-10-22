@@ -9,7 +9,7 @@ SDK for working with Intrinio's realtime OPRA, Options Edge, IEX, delayed SIP, C
 - NOTE: You need https://pypi.org/project/websocket-client/, not https://pypi.org/project/websocket/.
 
 ## Docker
-Add your API key to the example_app_equities.py or example_app_options.py file, comment the correct line (16 or 17) in Dockerfile, then
+Add your API key to the example_app_equities.py, example_app_options.py file, or example_app_options_and_equities.py file, comment the correct line (16 or 17) in Dockerfile, then
 ```
 docker compose build
 docker compose run client
