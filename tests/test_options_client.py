@@ -449,6 +449,32 @@ class OptionsReconnectTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         self.assertEqual(len(callbacks), 1)
 
+    def test_internal_queues_prioritize_option_event_types(self):
+        client = _make_client()
+        data = client._IntrinioRealtimeOptionsClient__data
+        quote = bytearray(52)
+        quote[22] = 1
+        unusual_activity = bytearray(74)
+        unusual_activity[22] = 3
+        refresh = bytearray(52)
+        refresh[22] = 2
+        trade = bytearray(72)
+        trade[22] = 0
+
+        data.put(
+            bytes([4])
+            + bytes(quote)
+            + bytes(unusual_activity)
+            + bytes(refresh)
+            + bytes(trade)
+        )
+
+        self.assertEqual(data.qsize(), 4)
+        self.assertEqual(data.get_nowait()[23], 0)
+        self.assertEqual(data.get_nowait()[23], 3)
+        self.assertEqual(data.get_nowait()[23], 2)
+        self.assertEqual(data.get_nowait()[23], 1)
+
     def test_truncated_message_does_not_terminate_worker(self):
         data = queue.Queue()
         stop = threading.Event()

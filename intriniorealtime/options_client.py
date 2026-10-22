@@ -10,6 +10,7 @@ from collections.abc import Callable
 from enum import IntEnum, unique
 
 from ._websocket import close_websocket_app, should_abort_handshake, _redact_api_key
+from ._multi_queue import MultiQueue
 
 _SELF_HEAL_BACKOFFS = [10, 30, 60, 300, 600]
 _CONNECT_TIMEOUT_SECONDS = 30
@@ -20,6 +21,42 @@ _OPTIONS_QUOTE_MESSAGE_SIZE = 52  # 48 used + 4 pad
 _OPTIONS_REFRESH_MESSAGE_SIZE = 52  # 44 used + 8 pad
 _OPTIONS_UNUSUAL_ACTIVITY_MESSAGE_SIZE = 74  # 62 used + 12 pad
 _NAN = float("NAN")
+
+
+def _split_options_message(message):
+    if not isinstance(message, (bytes, bytearray, memoryview)) or len(message) < 1:
+        return [(2, message)]
+
+    message_sizes = {
+        0: _OPTIONS_TRADE_MESSAGE_SIZE,
+        1: _OPTIONS_QUOTE_MESSAGE_SIZE,
+        2: _OPTIONS_REFRESH_MESSAGE_SIZE,
+    }
+    items = []
+    start_index = 1
+    for _ in range(message[0]):
+        if start_index + 23 > len(message):
+            return [(2, message)]
+        message_type = message[start_index + 22]
+        message_size = message_sizes.get(
+            message_type, _OPTIONS_UNUSUAL_ACTIVITY_MESSAGE_SIZE)
+        if start_index + message_size > len(message):
+            return [(2, message)]
+        record = bytes(message[start_index:start_index + message_size])
+        if message_type == 0:
+            priority = 0
+        elif message_type == 1:
+            priority = 2
+        else:
+            priority = 1
+        items.append((priority, bytes([1]) + record))
+        start_index += message_size
+
+    return items or [(2, message)]
+
+
+def _make_options_queue():
+    return MultiQueue(3, _split_options_message)
 
 _stopFlag: threading.Event = threading.Event()
 _logHandler: logging.Logger = logging.StreamHandler()
@@ -849,7 +886,7 @@ class IntrinioRealtimeOptionsClient:
             self.__channels: set[str] = set((_transform_contract_to_new(symbol)) for symbol in config.symbols)
         else:
             self.__channels: set[str] = set()
-        self.__data: queue.Queue = queue.Queue()
+        self.__data: queue.Queue = _make_options_queue()
         self.__t_lock: threading.Lock = threading.Lock()
         self.__ws_lock: threading.Lock = threading.Lock()
         self.__channels_lock: threading.RLock = threading.RLock()
@@ -1116,7 +1153,7 @@ class IntrinioRealtimeOptionsClient:
                         raise RuntimeError("Cannot start while client is stopping")
                     self._stop_event = threading.Event()
                     stop_event = self._stop_event
-                    self.__data = queue.Queue()
+                    self.__data = _make_options_queue()
                     data_queue = self.__data
                     self.__worker_threads = self.__make_worker_threads()
                     worker_threads = self.__worker_threads
